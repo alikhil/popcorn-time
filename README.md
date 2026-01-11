@@ -5,31 +5,70 @@ A smart web application that listens to your microwave popcorn pops and suggests
 ## Features
 
 - 🎤 **Real-time Audio Detection**: Uses your device's microphone to detect popcorn pops
-- 📊 **Visual Feedback**: Live audio visualization and pop indicators
+- 📊 **Visual Feedback**: Live audio visualization and pop indicators with frequency spectrum heat map
 - ⏱️ **Smart Timing**: Intelligent algorithm suggests when to stop based on pop frequency
 - 📱 **Mobile-Friendly**: Works on modern Android and iOS browsers
 - 🔒 **Privacy-First**: All processing happens locally in your browser
 - 🚫 **No Dependencies**: Pure JavaScript, no external libraries or server required
+- 🔧 **Debug Mode**: Upload and analyze audio recordings for testing
+
+## Quick Start
+
+1. Open `index.html` in a modern web browser
+2. Click "Start Listening" and allow microphone access
+3. Place your device near the microwave
+4. Start your popcorn
+5. Follow the app's recommendations
+
+## Debug Mode
+
+Enable debug mode to test with pre-recorded audio:
+
+1. Toggle the "Debug Mode" switch
+2. Upload an audio file (MP3, WAV, OGG, M4A, WebM)
+3. (Optional) Set start time in seconds
+4. (Optional) Enable/disable audio playback
+5. Click "Start Debug Session"
+6. Check browser console (F12) for detailed logs
+
+### Sample Audio
+
+A sample audio file is included in `samples/score-4.5-a-bit-burned.m4a` for testing.
+
+### Troubleshooting
+
+Use `analyzer.html` for detailed audio analysis:
+- Load sample or custom audio files
+- View real-time frequency spectrum
+- See detailed detection logs
+- Monitor energy levels and peak frequencies
 
 ## How It Works
 
 The app uses the Web Audio API to analyze audio from your microphone in real-time:
 
 1. **Audio Capture**: Captures audio through your device's microphone
-2. **Pop Detection**: Analyzes audio amplitude to detect characteristic popcorn "pop" sounds
-3. **Pattern Analysis**: Tracks the frequency and timing of pops
-4. **Smart Suggestions**: Recommends stopping when:
+2. **Frequency Analysis**: Uses FFT to analyze frequency spectrum (1-8 kHz range)
+3. **Pop Detection**: Detects characteristic popcorn "pop" sounds using dual threshold system
+4. **Pattern Analysis**: Tracks the frequency and timing of pops
+5. **Smart Suggestions**: Recommends stopping when:
    - Pops slow to 2-3 seconds apart (optimal)
    - No pops detected for 4+ seconds (burning warning)
 
-## Usage
+## Algorithm Details
 
-1. Open `index.html` in a modern web browser
-2. Place your device near the microwave
-3. Click "Start Listening" and allow microphone access
-4. Start your popcorn in the microwave
-5. Watch the real-time pop detection
-6. Follow the app's recommendation to stop at the optimal time
+### Pop Detection
+- **Frequency Range**: 1kHz - 8kHz (where popcorn pops occur)
+- **Dual Threshold**: Average energy + peak amplitude detection
+- **Adaptive Threshold**: 112 (first 3 pops) → 140 (normal)
+- **Cooldown**: 150ms to prevent double-counting
+- **Console Logging**: Detailed energy, frequency, and timing information
+
+### Visualization
+- Frequency spectrum heat map (last 5 seconds)
+- Color-coded intensity (blue → red)
+- Pop markers with 🍿 icons
+- Waveform overlay
 
 ## Browser Compatibility
 
@@ -46,24 +85,7 @@ The app uses standard Web APIs supported by modern browsers:
 - Canvas API for visualization
 - ES6+ JavaScript support
 
-## Technical Details
-
-### Algorithm
-
-The pop detection algorithm uses:
-- **RMS (Root Mean Square)** calculation for audio amplitude
-- **Threshold detection** (configurable threshold of 150)
-- **Cooldown period** (200ms) to prevent double-counting
-- **Rate analysis** over 10-second windows
-
-### Recommendations Logic
-
-- **Active Popping** (>2 pops/sec): Keep waiting
-- **Slowing Down** (0.5-2 pops/sec): Get ready
-- **Optimal Time** (>2.5s since last pop): Stop now
-- **Danger Zone** (>4s since last pop): Stop immediately!
-
-### Privacy & Security
+## Privacy & Security
 
 - No data is sent to any server
 - All audio processing happens locally
@@ -72,14 +94,13 @@ The pop detection algorithm uses:
 
 ## Development
 
-The application is a single HTML file with embedded CSS and JavaScript:
+The application consists of:
+- `index.html` - Main application (1000+ lines, pure JavaScript)
+- `analyzer.html` - Troubleshooting tool for audio analysis
+- `samples/` - Sample audio files for testing
+- `SAMPLE_AUDIO_INSTRUCTIONS.md` - Testing guide
 
-- **No build process required**
-- **No dependencies to install**
-- **Works offline** after initial load
-- **No server needed**
-
-Simply open `index.html` in a browser or serve it with any static file server.
+**No build process required** - just open in a browser!
 
 ## Tips for Best Results
 
@@ -91,19 +112,35 @@ Simply open `index.html` in a browser or serve it with any static file server.
 
 ## Troubleshooting
 
-**Microphone not working?**
+### Pops Not Being Detected?
+
+1. **Check Console Logs** (F12):
+   - Look for "📊 Audio level" messages every second
+   - Check if "Avg" and "Max" values are above 50
+   - Verify peak frequencies are in 1-8kHz range
+
+2. **Use the Analyzer Tool**:
+   - Open `analyzer.html` in your browser
+   - Load your audio file or the sample
+   - View detailed energy levels and frequencies
+   - Check if threshold needs adjustment
+
+3. **Common Issues**:
+   - **Low audio levels** (Avg < 50): Increase volume or move closer
+   - **Wrong frequency**: Verify sounds are in 1-8kHz range
+   - **Threshold too high**: Current threshold is 140 (adaptive 112)
+
+### Microphone Not Working?
+
 - Ensure you've granted microphone permission
 - Check that no other app is using the microphone
 - Try refreshing the page
 
-**Not detecting pops?**
-- Move device closer to the microwave
-- Reduce background noise
-- Ensure microwave door is closed properly
+### False Detections?
 
-**False detections?**
 - Move device slightly further away
 - Minimize other noise sources
+- Background noise may trigger detection
 
 ## License
 
@@ -111,7 +148,7 @@ MIT License - Feel free to use and modify as needed.
 
 ## Contributing
 
-This is a simple single-file application. Contributions welcome for:
+Contributions welcome for:
 - Algorithm improvements
 - UI/UX enhancements
 - Browser compatibility fixes
