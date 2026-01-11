@@ -464,6 +464,7 @@
                 this.popTimes = [];
                 this.lastPopTime = 0;
                 this.animationId = null;
+                this.lastLogTime = 0;
                 
                 // Pop detection parameters
                 this.threshold = 140; // Frequency threshold for pop detection
@@ -634,17 +635,24 @@
                 const startTime = parseFloat(this.debugStartTimeInput?.value || 0);
                 this.debugStartTime = startTime;
                 
-                // Optional: connect to destination to hear the audio
-                if (this.audioPlaybackEnabled && this.debugPlaybackToggle?.checked !== false) {
+                // Check if audio playback is enabled from checkbox
+                const playbackEnabled = this.debugPlaybackToggle?.checked !== false;
+                
+                // Connect to destination to hear the audio if playback is enabled
+                if (playbackEnabled) {
                     this.audioSource.connect(this.audioContext.destination);
+                    console.log('🔊 Audio playback enabled');
+                } else {
+                    console.log('🔇 Audio playback muted');
                 }
                 
                 // Reset state and start
                 this.resetState();
                 this.updateUI(`Analyzing: ${this.audioFileInput.files[0].name}`);
                 
-                console.log('🔧 Debug mode started, start time:', startTime, 'playback:', this.audioPlaybackEnabled);
-                console.log('🔧 Audio duration:', this.audioBuffer.duration, 'seconds');
+                console.log('🔧 Debug mode started, start time:', startTime + 's');
+                console.log('🔧 Audio duration:', this.audioBuffer.duration.toFixed(2) + 's');
+                console.log('🔧 Sample rate:', this.audioContext.sampleRate + 'Hz');
                 
                 // Start playback from specified time
                 this.audioSource.start(0, startTime);
@@ -762,24 +770,41 @@
                 // Calculate energy in the pop frequency range
                 let energy = 0;
                 let maxAmplitude = 0;
+                let peakFrequency = 0;
                 for (let i = lowFreqBin; i < highFreqBin && i < this.frequencyData.length; i++) {
                     energy += this.frequencyData[i];
-                    maxAmplitude = Math.max(maxAmplitude, this.frequencyData[i]);
+                    if (this.frequencyData[i] > maxAmplitude) {
+                        maxAmplitude = this.frequencyData[i];
+                        peakFrequency = i * binWidth;
+                    }
                 }
                 const avgEnergy = energy / (highFreqBin - lowFreqBin);
                 
+                // Log every second for debugging
+                if (now - this.lastLogTime > 1000 || !this.lastLogTime) {
+                    this.lastLogTime = now;
+                    console.log('📊 Audio level - Avg:', avgEnergy.toFixed(1), 'Max:', maxAmplitude, 
+                                'Peak freq:', peakFrequency.toFixed(0) + 'Hz', 
+                                'Time:', ((now - this.startTime) / 1000).toFixed(1) + 's');
+                }
+                
+                // Adaptive threshold - use lower value for initial detection
+                const adaptiveThreshold = this.popTimes.length < 3 ? this.threshold * 0.8 : this.threshold;
+                
                 // Detect peak with both average energy and max amplitude
-                const isSignificantPeak = avgEnergy > this.threshold || maxAmplitude > (this.threshold + 40);
+                const isSignificantPeak = avgEnergy > adaptiveThreshold || maxAmplitude > (adaptiveThreshold + 40);
                 
                 if (isSignificantPeak && (now - this.lastPeakTime) > this.cooldownPeriod) {
                     this.lastPeakTime = now;
                     this.lastPopTime = now;
                     this.popTimes.push(now);
                     
-                    console.log('🍿 Pop detected! #' + this.popTimes.length, 
-                                'avgEnergy:', avgEnergy.toFixed(1), 
-                                'maxAmp:', maxAmplitude,
-                                'at', ((now - this.startTime) / 1000).toFixed(2) + 's');
+                    console.log('🍿 POP #' + this.popTimes.length + '!', 
+                                'Energy:', avgEnergy.toFixed(1), 
+                                'Peak:', maxAmplitude,
+                                'Freq:', peakFrequency.toFixed(0) + 'Hz',
+                                'Time:', ((now - this.startTime) / 1000).toFixed(2) + 's',
+                                'Threshold:', adaptiveThreshold.toFixed(1));
                     
                     // Update UI
                     this.popCount.textContent = `Pops detected: ${this.popTimes.length}`;
