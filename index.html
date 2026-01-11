@@ -267,6 +267,7 @@
                 this.audioContext = null;
                 this.analyser = null;
                 this.microphone = null;
+                this.stream = null;
                 this.dataArray = null;
                 this.bufferLength = null;
                 this.isListening = false;
@@ -320,6 +321,9 @@
                         } 
                     });
                     
+                    // Store stream reference for cleanup
+                    this.stream = stream;
+                    
                     // Setup audio context
                     this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
                     this.analyser = this.audioContext.createAnalyser();
@@ -362,7 +366,10 @@
                 
                 if (this.microphone) {
                     this.microphone.disconnect();
-                    this.microphone.mediaStream.getTracks().forEach(track => track.stop());
+                }
+                
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
                 }
                 
                 if (this.audioContext) {
