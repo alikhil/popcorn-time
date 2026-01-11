@@ -318,6 +318,46 @@
             background: #f57c00;
         }
 
+        .debug-options {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ffcc80;
+        }
+
+        .debug-option {
+            margin: 10px 0;
+        }
+
+        .debug-option label {
+            display: block;
+            font-weight: 600;
+            color: #e65100;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+
+        .debug-option input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid #ffcc80;
+            border-radius: 5px;
+            font-size: 0.95em;
+        }
+
+        .debug-option input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+            vertical-align: middle;
+        }
+
+        .debug-option label:has(input[type="checkbox"]) {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+
         .debug-info {
             font-size: 0.85em;
             color: #666;
@@ -366,6 +406,18 @@
                         Supported formats: MP3, WAV, OGG, M4A, WebM
                     </div>
                 </div>
+                <div class="debug-options">
+                    <div class="debug-option">
+                        <label for="debugStartTime">Start Time (seconds):</label>
+                        <input type="number" id="debugStartTime" min="0" step="0.1" value="0" placeholder="0">
+                    </div>
+                    <div class="debug-option">
+                        <label for="debugPlayback">
+                            <input type="checkbox" id="debugPlayback" checked>
+                            Play audio during analysis
+                        </label>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -405,6 +457,7 @@
                 this.microphone = null;
                 this.stream = null;
                 this.dataArray = null;
+                this.frequencyData = null;
                 this.bufferLength = null;
                 this.isListening = false;
                 this.startTime = null;
@@ -413,14 +466,20 @@
                 this.animationId = null;
                 
                 // Pop detection parameters
-                this.threshold = 150; // Audio threshold for pop detection
-                this.cooldownPeriod = 200; // Minimum ms between pops
+                this.threshold = 140; // Frequency threshold for pop detection
+                this.cooldownPeriod = 150; // Minimum ms between pops
                 this.lastPeakTime = 0;
                 
                 // Debug mode
                 this.debugMode = false;
                 this.audioBuffer = null;
                 this.audioSource = null;
+                this.debugStartTime = 0;
+                this.audioPlaybackEnabled = true;
+                
+                // Frequency history for visualization (last 10 seconds)
+                this.frequencyHistory = [];
+                this.maxHistoryDuration = 10000; // 10 seconds in ms
                 
                 // DOM elements
                 this.startBtn = document.getElementById('startBtn');
@@ -436,6 +495,8 @@
                 this.debugToggle = document.getElementById('debugToggle');
                 this.debugControls = document.getElementById('debugControls');
                 this.audioFileInput = document.getElementById('audioFile');
+                this.debugStartTimeInput = document.getElementById('debugStartTime');
+                this.debugPlaybackToggle = document.getElementById('debugPlayback');
                 
                 this.initCanvas();
                 this.attachEventListeners();
@@ -541,12 +602,14 @@
                 this.analyser.fftSize = 2048;
                 this.bufferLength = this.analyser.frequencyBinCount;
                 this.dataArray = new Uint8Array(this.bufferLength);
+                this.frequencyData = new Uint8Array(this.bufferLength);
                 
                 this.microphone.connect(this.analyser);
                 
                 // Reset state and start
                 this.resetState();
                 this.updateUI('Listening...');
+                console.log('🎤 Live mode started, threshold:', this.threshold);
                 this.analyze();
             }
 
@@ -560,24 +623,35 @@
                 this.analyser.fftSize = 2048;
                 this.bufferLength = this.analyser.frequencyBinCount;
                 this.dataArray = new Uint8Array(this.bufferLength);
+                this.frequencyData = new Uint8Array(this.bufferLength);
                 
                 // Create buffer source
                 this.audioSource = this.audioContext.createBufferSource();
                 this.audioSource.buffer = this.audioBuffer;
                 this.audioSource.connect(this.analyser);
                 
+                // Get start time from debug controls
+                const startTime = parseFloat(this.debugStartTimeInput?.value || 0);
+                this.debugStartTime = startTime;
+                
                 // Optional: connect to destination to hear the audio
-                this.audioSource.connect(this.audioContext.destination);
+                if (this.audioPlaybackEnabled && this.debugPlaybackToggle?.checked !== false) {
+                    this.audioSource.connect(this.audioContext.destination);
+                }
                 
                 // Reset state and start
                 this.resetState();
                 this.updateUI(`Analyzing: ${this.audioFileInput.files[0].name}`);
                 
-                // Start playback
-                this.audioSource.start(0);
+                console.log('🔧 Debug mode started, start time:', startTime, 'playback:', this.audioPlaybackEnabled);
+                console.log('🔧 Audio duration:', this.audioBuffer.duration, 'seconds');
+                
+                // Start playback from specified time
+                this.audioSource.start(0, startTime);
                 
                 // Stop automatically when finished
                 this.audioSource.onended = () => {
+                    console.log('🔧 Audio playback ended');
                     this.stop();
                 };
                 
@@ -590,6 +664,7 @@
                 this.popTimes = [];
                 this.lastPopTime = 0;
                 this.lastPeakTime = 0;
+                this.frequencyHistory = [];
             }
 
             updateUI(statusText) {
@@ -662,19 +737,49 @@
             detectPop() {
                 const now = Date.now();
                 
-                // Calculate RMS (Root Mean Square) for better pop detection
-                let sum = 0;
-                for (let i = 0; i < this.bufferLength; i++) {
-                    const normalized = (this.dataArray[i] - 128) / 128;
-                    sum += normalized * normalized;
-                }
-                const rms = Math.sqrt(sum / this.bufferLength) * 255;
+                // Get frequency data for better pop detection
+                this.analyser.getByteFrequencyData(this.frequencyData);
                 
-                // Detect peak
-                if (rms > this.threshold && (now - this.lastPeakTime) > this.cooldownPeriod) {
+                // Store frequency snapshot for visualization
+                this.frequencyHistory.push({
+                    timestamp: now,
+                    data: new Uint8Array(this.frequencyData)
+                });
+                
+                // Keep only last 10 seconds of history
+                const cutoffTime = now - this.maxHistoryDuration;
+                this.frequencyHistory = this.frequencyHistory.filter(h => h.timestamp > cutoffTime);
+                
+                // Focus on mid to high frequencies where pops occur (1kHz - 8kHz)
+                // Sample rate is typically 44100Hz or 48000Hz
+                // frequencyBinCount is fftSize / 2 = 1024
+                // Each bin represents sampleRate / fftSize Hz
+                const sampleRate = this.audioContext.sampleRate;
+                const binWidth = sampleRate / (this.analyser.fftSize);
+                const lowFreqBin = Math.floor(1000 / binWidth);  // 1kHz
+                const highFreqBin = Math.floor(8000 / binWidth); // 8kHz
+                
+                // Calculate energy in the pop frequency range
+                let energy = 0;
+                let maxAmplitude = 0;
+                for (let i = lowFreqBin; i < highFreqBin && i < this.frequencyData.length; i++) {
+                    energy += this.frequencyData[i];
+                    maxAmplitude = Math.max(maxAmplitude, this.frequencyData[i]);
+                }
+                const avgEnergy = energy / (highFreqBin - lowFreqBin);
+                
+                // Detect peak with both average energy and max amplitude
+                const isSignificantPeak = avgEnergy > this.threshold || maxAmplitude > (this.threshold + 40);
+                
+                if (isSignificantPeak && (now - this.lastPeakTime) > this.cooldownPeriod) {
                     this.lastPeakTime = now;
                     this.lastPopTime = now;
                     this.popTimes.push(now);
+                    
+                    console.log('🍿 Pop detected! #' + this.popTimes.length, 
+                                'avgEnergy:', avgEnergy.toFixed(1), 
+                                'maxAmp:', maxAmplitude,
+                                'at', ((now - this.startTime) / 1000).toFixed(2) + 's');
                     
                     // Update UI
                     this.popCount.textContent = `Pops detected: ${this.popTimes.length}`;
@@ -695,12 +800,56 @@
             visualize() {
                 const width = this.canvas.width;
                 const height = this.canvas.height;
+                const now = Date.now();
                 
+                // Clear canvas
                 this.canvasCtx.fillStyle = '#f7f7f7';
                 this.canvasCtx.fillRect(0, 0, width, height);
                 
+                // Draw frequency spectrum history (heat map style)
+                if (this.frequencyHistory.length > 0) {
+                    const historyWidth = Math.min(this.frequencyHistory.length, width);
+                    const barWidth = width / historyWidth;
+                    const timeWindow = 5000; // Show last 5 seconds
+                    const cutoffTime = now - timeWindow;
+                    
+                    // Filter to recent history
+                    const recentHistory = this.frequencyHistory.filter(h => h.timestamp > cutoffTime);
+                    
+                    // Focus on pop frequency range for visualization
+                    const sampleRate = this.audioContext.sampleRate;
+                    const binWidth = sampleRate / (this.analyser.fftSize);
+                    const lowFreqBin = Math.floor(500 / binWidth);   // 500Hz
+                    const highFreqBin = Math.floor(10000 / binWidth); // 10kHz
+                    const freqRange = highFreqBin - lowFreqBin;
+                    
+                    recentHistory.forEach((snapshot, index) => {
+                        const x = (index / recentHistory.length) * width;
+                        
+                        // Draw frequency bars for this time slice
+                        for (let f = lowFreqBin; f < highFreqBin && f < snapshot.data.length; f++) {
+                            const amplitude = snapshot.data[f];
+                            const normalizedF = (f - lowFreqBin) / freqRange;
+                            const barHeight = (amplitude / 255) * height * 0.8;
+                            const y = height - barHeight;
+                            
+                            // Color based on amplitude (blue to red)
+                            const hue = 240 - (amplitude / 255) * 120; // Blue (240) to red (120)
+                            const saturation = 70 + (amplitude / 255) * 30;
+                            const lightness = 40 + (amplitude / 255) * 20;
+                            this.canvasCtx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+                            
+                            const barY = height - (normalizedF * height);
+                            const individualBarHeight = height / freqRange;
+                            this.canvasCtx.fillRect(x, barY, barWidth + 1, individualBarHeight + 1);
+                        }
+                    });
+                }
+                
+                // Draw current waveform overlay
+                this.analyser.getByteTimeDomainData(this.dataArray);
                 this.canvasCtx.lineWidth = 2;
-                this.canvasCtx.strokeStyle = '#667eea';
+                this.canvasCtx.strokeStyle = 'rgba(102, 126, 234, 0.7)';
                 this.canvasCtx.beginPath();
                 
                 const sliceWidth = width / this.bufferLength;
@@ -721,6 +870,29 @@
                 
                 this.canvasCtx.lineTo(width, height / 2);
                 this.canvasCtx.stroke();
+                
+                // Draw pop markers
+                const timeWindow = 5000; // 5 seconds
+                const cutoffTime = now - timeWindow;
+                this.popTimes.forEach(popTime => {
+                    if (popTime > cutoffTime) {
+                        const relativeTime = (now - popTime) / timeWindow;
+                        const markerX = width * (1 - relativeTime);
+                        
+                        // Draw vertical line for pop
+                        this.canvasCtx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+                        this.canvasCtx.lineWidth = 3;
+                        this.canvasCtx.beginPath();
+                        this.canvasCtx.moveTo(markerX, 0);
+                        this.canvasCtx.lineTo(markerX, height);
+                        this.canvasCtx.stroke();
+                        
+                        // Draw pop icon
+                        this.canvasCtx.fillStyle = 'rgba(255, 215, 0, 0.9)';
+                        this.canvasCtx.font = 'bold 16px Arial';
+                        this.canvasCtx.fillText('🍿', markerX - 8, 20);
+                    }
+                });
             }
 
             checkRecommendations(elapsed) {
