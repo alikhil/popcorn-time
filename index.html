@@ -625,8 +625,9 @@
                     this.stream.getTracks().forEach(track => track.stop());
                 }
                 
-                if (this.audioContext && !this.debugMode) {
+                if (this.audioContext) {
                     this.audioContext.close();
+                    this.audioContext = null;
                 }
                 
                 this.startBtn.style.display = 'block';
