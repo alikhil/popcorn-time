@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Popcorn Timer - Listen to your microwave popcorn pops and get optimal timing suggestions">
+    <title>Popcorn Timer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+
+        .status {
+            text-align: center;
+            padding: 20px;
+            background: #f7f7f7;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .status-text {
+            font-size: 1.2em;
+            color: #667eea;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .timer {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #764ba2;
+            margin: 10px 0;
+        }
+
+        .pop-count {
+            font-size: 1.5em;
+            color: #333;
+            margin: 10px 0;
+        }
+
+        .pop-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            background: #ddd;
+            border-radius: 50%;
+            margin: 0 5px;
+            transition: all 0.3s ease;
+        }
+
+        .pop-indicator.active {
+            background: #667eea;
+            transform: scale(1.5);
+        }
+
+        .recommendation {
+            background: #fffbea;
+            border: 2px solid #ffd600;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: center;
+            font-size: 1.1em;
+            color: #886800;
+            font-weight: 600;
+            display: none;
+        }
+
+        .recommendation.show {
+            display: block;
+            animation: pulse 1s ease infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .warning {
+            background: #fee;
+            border: 2px solid #f00;
+            color: #c00;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.2em;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        .start-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .start-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .stop-btn {
+            background: #f44336;
+            color: white;
+        }
+
+        .stop-btn:hover {
+            background: #d32f2f;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .visualizer {
+            width: 100%;
+            height: 100px;
+            background: #f7f7f7;
+            border-radius: 10px;
+            margin: 20px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .visualizer canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .info {
+            background: #e3f2fd;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 0.9em;
+            color: #555;
+        }
+
+        .info h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .info ul {
+            padding-left: 20px;
+        }
+
+        .info li {
+            margin: 5px 0;
+        }
+
+        .error {
+            background: #ffebee;
+            border: 2px solid #f44336;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #c62828;
+            text-align: center;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 1.5em;
+            }
+
+            .timer {
+                font-size: 2em;
+            }
+
+            .pop-count {
+                font-size: 1.2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍿 Popcorn Timer</h1>
+        <p class="subtitle">Perfect popcorn, every time</p>
+
+        <div class="error" id="error"></div>
+
+        <div class="status">
+            <div class="status-text" id="statusText">Ready to start</div>
+            <div class="timer" id="timer">0:00</div>
+            <div class="pop-count" id="popCount">Pops detected: 0</div>
+            <div id="popIndicators"></div>
+        </div>
+
+        <div class="visualizer">
+            <canvas id="visualizer"></canvas>
+        </div>
+
+        <div class="recommendation" id="recommendation"></div>
+
+        <button class="start-btn" id="startBtn">Start Listening</button>
+        <button class="stop-btn" id="stopBtn" style="display: none;">Stop</button>
+
+        <div class="info">
+            <h3>How to use:</h3>
+            <ul>
+                <li>Place your phone near the microwave</li>
+                <li>Click "Start Listening" and allow microphone access</li>
+                <li>Start your popcorn in the microwave</li>
+                <li>The app will detect pops and suggest when to stop</li>
+                <li>Stop when pops slow to 2-3 seconds apart</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        class PopcornTimer {
+            constructor() {
+                this.audioContext = null;
+                this.analyser = null;
+                this.microphone = null;
+                this.dataArray = null;
+                this.bufferLength = null;
+                this.isListening = false;
+                this.startTime = null;
+                this.popTimes = [];
+                this.lastPopTime = 0;
+                this.animationId = null;
+                
+                // Pop detection parameters
+                this.threshold = 150; // Audio threshold for pop detection
+                this.cooldownPeriod = 200; // Minimum ms between pops
+                this.lastPeakTime = 0;
+                
+                // DOM elements
+                this.startBtn = document.getElementById('startBtn');
+                this.stopBtn = document.getElementById('stopBtn');
+                this.statusText = document.getElementById('statusText');
+                this.timer = document.getElementById('timer');
+                this.popCount = document.getElementById('popCount');
+                this.recommendation = document.getElementById('recommendation');
+                this.error = document.getElementById('error');
+                this.canvas = document.getElementById('visualizer');
+                this.canvasCtx = this.canvas.getContext('2d');
+                this.popIndicators = document.getElementById('popIndicators');
+                
+                this.initCanvas();
+                this.attachEventListeners();
+            }
+
+            initCanvas() {
+                this.canvas.width = this.canvas.offsetWidth;
+                this.canvas.height = this.canvas.offsetHeight;
+            }
+
+            attachEventListeners() {
+                this.startBtn.addEventListener('click', () => this.start());
+                this.stopBtn.addEventListener('click', () => this.stop());
+                window.addEventListener('resize', () => this.initCanvas());
+            }
+
+            async start() {
+                try {
+                    this.hideError();
+                    
+                    // Request microphone access
+                    const stream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            echoCancellation: false,
+                            noiseSuppression: false,
+                            autoGainControl: false
+                        } 
+                    });
+                    
+                    // Setup audio context
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.analyser = this.audioContext.createAnalyser();
+                    this.microphone = this.audioContext.createMediaStreamSource(stream);
+                    
+                    this.analyser.fftSize = 2048;
+                    this.bufferLength = this.analyser.frequencyBinCount;
+                    this.dataArray = new Uint8Array(this.bufferLength);
+                    
+                    this.microphone.connect(this.analyser);
+                    
+                    // Reset state
+                    this.isListening = true;
+                    this.startTime = Date.now();
+                    this.popTimes = [];
+                    this.lastPopTime = 0;
+                    
+                    // Update UI
+                    this.startBtn.style.display = 'none';
+                    this.stopBtn.style.display = 'block';
+                    this.statusText.textContent = 'Listening...';
+                    this.recommendation.classList.remove('show');
+                    this.updatePopIndicators();
+                    
+                    // Start analysis
+                    this.analyze();
+                    
+                } catch (err) {
+                    this.showError('Could not access microphone. Please grant permission and try again.');
+                    console.error('Error accessing microphone:', err);
+                }
+            }
+
+            stop() {
+                this.isListening = false;
+                
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                }
+                
+                if (this.microphone) {
+                    this.microphone.disconnect();
+                    this.microphone.mediaStream.getTracks().forEach(track => track.stop());
+                }
+                
+                if (this.audioContext) {
+                    this.audioContext.close();
+                }
+                
+                this.startBtn.style.display = 'block';
+                this.stopBtn.style.display = 'none';
+                this.statusText.textContent = 'Stopped';
+                
+                // Clear canvas
+                this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+
+            analyze() {
+                if (!this.isListening) return;
+                
+                this.analyser.getByteTimeDomainData(this.dataArray);
+                
+                // Update timer
+                const elapsed = Date.now() - this.startTime;
+                this.updateTimer(elapsed);
+                
+                // Detect pops
+                this.detectPop();
+                
+                // Visualize audio
+                this.visualize();
+                
+                // Check for recommendations
+                this.checkRecommendations(elapsed);
+                
+                this.animationId = requestAnimationFrame(() => this.analyze());
+            }
+
+            detectPop() {
+                const now = Date.now();
+                
+                // Calculate RMS (Root Mean Square) for better pop detection
+                let sum = 0;
+                for (let i = 0; i < this.bufferLength; i++) {
+                    const normalized = (this.dataArray[i] - 128) / 128;
+                    sum += normalized * normalized;
+                }
+                const rms = Math.sqrt(sum / this.bufferLength) * 255;
+                
+                // Detect peak
+                if (rms > this.threshold && (now - this.lastPeakTime) > this.cooldownPeriod) {
+                    this.lastPeakTime = now;
+                    this.lastPopTime = now;
+                    this.popTimes.push(now);
+                    
+                    // Update UI
+                    this.popCount.textContent = `Pops detected: ${this.popTimes.length}`;
+                    this.updatePopIndicators();
+                    
+                    // Flash indicator
+                    this.flashPopIndicator();
+                }
+            }
+
+            updateTimer(elapsed) {
+                const seconds = Math.floor(elapsed / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                this.timer.textContent = `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+            }
+
+            visualize() {
+                const width = this.canvas.width;
+                const height = this.canvas.height;
+                
+                this.canvasCtx.fillStyle = '#f7f7f7';
+                this.canvasCtx.fillRect(0, 0, width, height);
+                
+                this.canvasCtx.lineWidth = 2;
+                this.canvasCtx.strokeStyle = '#667eea';
+                this.canvasCtx.beginPath();
+                
+                const sliceWidth = width / this.bufferLength;
+                let x = 0;
+                
+                for (let i = 0; i < this.bufferLength; i++) {
+                    const v = this.dataArray[i] / 128.0;
+                    const y = v * height / 2;
+                    
+                    if (i === 0) {
+                        this.canvasCtx.moveTo(x, y);
+                    } else {
+                        this.canvasCtx.lineTo(x, y);
+                    }
+                    
+                    x += sliceWidth;
+                }
+                
+                this.canvasCtx.lineTo(width, height / 2);
+                this.canvasCtx.stroke();
+            }
+
+            checkRecommendations(elapsed) {
+                const popCount = this.popTimes.length;
+                const now = Date.now();
+                const timeSinceLastPop = now - this.lastPopTime;
+                
+                // Calculate pop rate (pops per second) over last 10 seconds
+                const recentPops = this.popTimes.filter(t => now - t < 10000);
+                const popRate = recentPops.length / 10;
+                
+                // Early stage: not enough data
+                if (popCount < 5 && elapsed < 30000) {
+                    this.recommendation.classList.remove('show');
+                    return;
+                }
+                
+                // Optimal stopping condition: pops slowing down significantly
+                if (popCount >= 10 && timeSinceLastPop > 2500) {
+                    this.recommendation.textContent = '✅ Good time to stop! Pops have slowed down significantly.';
+                    this.recommendation.classList.add('show');
+                    this.recommendation.classList.remove('warning');
+                    return;
+                }
+                
+                // Warning: too long without pops (possible burning)
+                if (popCount >= 5 && timeSinceLastPop > 4000) {
+                    this.recommendation.textContent = '⚠️ STOP NOW! No pops detected for 4+ seconds - may be burning!';
+                    this.recommendation.classList.add('show', 'warning');
+                    return;
+                }
+                
+                // Active popping phase
+                if (popCount >= 5 && popRate > 2) {
+                    this.recommendation.textContent = '🔥 Popping actively... Wait for pops to slow down.';
+                    this.recommendation.classList.add('show');
+                    this.recommendation.classList.remove('warning');
+                    return;
+                }
+                
+                // Moderate popping
+                if (popCount >= 10 && popRate > 0.5 && popRate <= 2) {
+                    this.recommendation.textContent = '⏰ Slowing down... Get ready to stop soon!';
+                    this.recommendation.classList.add('show');
+                    this.recommendation.classList.remove('warning');
+                    return;
+                }
+            }
+
+            updatePopIndicators() {
+                const maxIndicators = 10;
+                const indicators = Math.min(this.popTimes.length, maxIndicators);
+                
+                this.popIndicators.innerHTML = '';
+                for (let i = 0; i < maxIndicators; i++) {
+                    const dot = document.createElement('span');
+                    dot.className = 'pop-indicator';
+                    if (i < indicators) {
+                        dot.classList.add('active');
+                    }
+                    this.popIndicators.appendChild(dot);
+                }
+            }
+
+            flashPopIndicator() {
+                // Visual feedback for pop detection
+                const indicators = this.popIndicators.querySelectorAll('.pop-indicator.active');
+                if (indicators.length > 0) {
+                    const lastIndicator = indicators[indicators.length - 1];
+                    lastIndicator.style.background = '#ffd600';
+                    setTimeout(() => {
+                        lastIndicator.style.background = '#667eea';
+                    }, 300);
+                }
+            }
+
+            showError(message) {
+                this.error.textContent = message;
+                this.error.classList.add('show');
+            }
+
+            hideError() {
+                this.error.classList.remove('show');
+            }
+        }
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check browser compatibility
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                document.getElementById('error').textContent = 'Your browser does not support microphone access. Please use a modern browser.';
+                document.getElementById('error').classList.add('show');
+                document.getElementById('startBtn').disabled = true;
+                return;
+            }
+            
+            new PopcornTimer();
+        });
+    </script>
+</body>
+</html>
