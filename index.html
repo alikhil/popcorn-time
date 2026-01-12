@@ -358,6 +358,20 @@
             cursor: pointer;
         }
 
+        .debug-params {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #ffcc80;
+        }
+
+        .debug-hint {
+            display: block;
+            font-size: 0.8em;
+            color: #888;
+            margin-top: 4px;
+            font-weight: normal;
+        }
+
         .debug-info {
             font-size: 0.85em;
             color: #666;
@@ -418,6 +432,34 @@
                         </label>
                     </div>
                 </div>
+                <div class="debug-params">
+                    <h4 style="margin: 15px 0 10px 0; font-size: 0.95em; color: #666;">Pop Detection Parameters:</h4>
+                    <div class="debug-option">
+                        <label for="debugThreshold">Energy Threshold:</label>
+                        <input type="number" id="debugThreshold" min="10" max="200" step="5" value="80" placeholder="80">
+                        <span class="debug-hint">Lower = more sensitive (default: 80)</span>
+                    </div>
+                    <div class="debug-option">
+                        <label for="debugCooldown">Cooldown Period (ms):</label>
+                        <input type="number" id="debugCooldown" min="50" max="500" step="10" value="150" placeholder="150">
+                        <span class="debug-hint">Time between detections (default: 150ms)</span>
+                    </div>
+                    <div class="debug-option">
+                        <label for="debugLowFreq">Low Frequency (Hz):</label>
+                        <input type="number" id="debugLowFreq" min="500" max="5000" step="100" value="1000" placeholder="1000">
+                        <span class="debug-hint">Lower bound of pop range (default: 1000Hz)</span>
+                    </div>
+                    <div class="debug-option">
+                        <label for="debugHighFreq">High Frequency (Hz):</label>
+                        <input type="number" id="debugHighFreq" min="2000" max="12000" step="100" value="8000" placeholder="8000">
+                        <span class="debug-hint">Upper bound of pop range (default: 8000Hz)</span>
+                    </div>
+                    <div class="debug-option">
+                        <label for="debugPeakThreshold">Peak Amplitude Boost:</label>
+                        <input type="number" id="debugPeakThreshold" min="0" max="100" step="5" value="40" placeholder="40">
+                        <span class="debug-hint">Added to threshold for peak detection (default: 40)</span>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -470,6 +512,9 @@
                 this.threshold = 80; // Frequency threshold for pop detection (lowered to catch more pops)
                 this.cooldownPeriod = 150; // Minimum ms between pops
                 this.lastPeakTime = 0;
+                this.lowFreq = 1000; // Low frequency bound (Hz)
+                this.highFreq = 8000; // High frequency bound (Hz)
+                this.peakThresholdBoost = 40; // Additional threshold for peak amplitude
                 
                 // Debug mode
                 this.debugMode = false;
@@ -498,6 +543,11 @@
                 this.audioFileInput = document.getElementById('audioFile');
                 this.debugStartTimeInput = document.getElementById('debugStartTime');
                 this.debugPlaybackToggle = document.getElementById('debugPlayback');
+                this.debugThresholdInput = document.getElementById('debugThreshold');
+                this.debugCooldownInput = document.getElementById('debugCooldown');
+                this.debugLowFreqInput = document.getElementById('debugLowFreq');
+                this.debugHighFreqInput = document.getElementById('debugHighFreq');
+                this.debugPeakThresholdInput = document.getElementById('debugPeakThreshold');
                 
                 this.initCanvas();
                 this.attachEventListeners();
@@ -638,6 +688,23 @@
                 // Check if audio playback is enabled from checkbox
                 const playbackEnabled = this.debugPlaybackToggle?.checked !== false;
                 
+                // Read debug parameters from inputs
+                if (this.debugThresholdInput) {
+                    this.threshold = parseInt(this.debugThresholdInput.value) || 80;
+                }
+                if (this.debugCooldownInput) {
+                    this.cooldownPeriod = parseInt(this.debugCooldownInput.value) || 150;
+                }
+                if (this.debugLowFreqInput) {
+                    this.lowFreq = parseInt(this.debugLowFreqInput.value) || 1000;
+                }
+                if (this.debugHighFreqInput) {
+                    this.highFreq = parseInt(this.debugHighFreqInput.value) || 8000;
+                }
+                if (this.debugPeakThresholdInput) {
+                    this.peakThresholdBoost = parseInt(this.debugPeakThresholdInput.value) || 40;
+                }
+                
                 // Connect to destination to hear the audio if playback is enabled
                 if (playbackEnabled) {
                     this.audioSource.connect(this.audioContext.destination);
@@ -653,6 +720,10 @@
                 console.log('🔧 Debug mode started, start time:', startTime + 's');
                 console.log('🔧 Audio duration:', this.audioBuffer.duration.toFixed(2) + 's');
                 console.log('🔧 Sample rate:', this.audioContext.sampleRate + 'Hz');
+                console.log('🔧 Threshold:', this.threshold);
+                console.log('🔧 Cooldown:', this.cooldownPeriod + 'ms');
+                console.log('🔧 Frequency range:', this.lowFreq + '-' + this.highFreq + 'Hz');
+                console.log('🔧 Peak boost:', this.peakThresholdBoost);
                 
                 // Start playback from specified time
                 this.audioSource.start(0, startTime);
@@ -758,14 +829,14 @@
                 const cutoffTime = now - this.maxHistoryDuration;
                 this.frequencyHistory = this.frequencyHistory.filter(h => h.timestamp > cutoffTime);
                 
-                // Focus on mid to high frequencies where pops occur (1kHz - 8kHz)
+                // Focus on configurable frequency range where pops occur
                 // Sample rate is typically 44100Hz or 48000Hz
                 // frequencyBinCount is fftSize / 2 = 1024
                 // Each bin represents sampleRate / fftSize Hz
                 const sampleRate = this.audioContext.sampleRate;
                 const binWidth = sampleRate / (this.analyser.fftSize);
-                const lowFreqBin = Math.floor(1000 / binWidth);  // 1kHz
-                const highFreqBin = Math.floor(8000 / binWidth); // 8kHz
+                const lowFreqBin = Math.floor(this.lowFreq / binWidth);
+                const highFreqBin = Math.floor(this.highFreq / binWidth);
                 
                 // Calculate energy in the pop frequency range
                 let energy = 0;
@@ -791,8 +862,8 @@
                 // Adaptive threshold - use lower value for initial detection
                 const adaptiveThreshold = this.popTimes.length < 3 ? this.threshold * 0.8 : this.threshold;
                 
-                // Detect peak with both average energy and max amplitude
-                const isSignificantPeak = avgEnergy > adaptiveThreshold || maxAmplitude > (adaptiveThreshold + 40);
+                // Detect peak with both average energy and max amplitude (using configurable boost)
+                const isSignificantPeak = avgEnergy > adaptiveThreshold || maxAmplitude > (adaptiveThreshold + this.peakThresholdBoost);
                 
                 if (isSignificantPeak && (now - this.lastPeakTime) > this.cooldownPeriod) {
                     this.lastPeakTime = now;
