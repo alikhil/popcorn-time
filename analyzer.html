@@ -126,6 +126,167 @@
     </div>
 
     <script>
+        // LPC-based Click Detection Implementation
+        // Based on Essentia ClickDetector algorithm
+        class LPCAnalyzer {
+            constructor(options = {}) {
+                this.sampleRate = options.sampleRate || 48000;
+                this.order = options.order || 12;
+                this.frameSize = options.frameSize || 512;
+                this.hopSize = options.hopSize || 256;
+                this.detectionThreshold = options.detectionThreshold || 30;
+                this.powerEstimationThreshold = options.powerEstimationThreshold || 10;
+                this.silenceThreshold = options.silenceThreshold || -50;
+                this.idx = 0;
+                this.clicks = [];
+            }
+            
+            autoCorrelation(signal, maxLag) {
+                const n = signal.length;
+                const r = new Array(maxLag + 1).fill(0);
+                for (let lag = 0; lag <= maxLag; lag++) {
+                    let sum = 0;
+                    for (let i = 0; i < n - lag; i++) {
+                        sum += signal[i] * signal[i + lag];
+                    }
+                    r[lag] = sum;
+                }
+                return r;
+            }
+            
+            levinsonDurbin(r, order) {
+                const lpc = new Array(order + 1).fill(0);
+                const reflection = new Array(order).fill(0);
+                const temp = new Array(order).fill(0);
+                let E = r[0];
+                lpc[0] = 1;
+                for (let i = 1; i <= order; i++) {
+                    let k = r[i];
+                    for (let j = 1; j < i; j++) {
+                        k += r[i - j] * lpc[j];
+                    }
+                    k /= E;
+                    reflection[i - 1] = k;
+                    lpc[i] = -k;
+                    for (let j = 1; j < i; j++) {
+                        temp[j] = lpc[j] - k * lpc[i - j];
+                    }
+                    for (let j = 1; j < i; j++) {
+                        lpc[j] = temp[j];
+                    }
+                    E *= (1 - k * k);
+                }
+                return { lpc, reflection };
+            }
+            
+            normalize(lpc) {
+                let sum = 0;
+                for (let i = 0; i < lpc.length; i++) {
+                    sum += lpc[i] * lpc[i];
+                }
+                const norm = Math.sqrt(sum);
+                if (norm > 0) {
+                    for (let i = 0; i < lpc.length; i++) {
+                        lpc[i] /= norm;
+                    }
+                }
+                return lpc;
+            }
+            
+            iirFilter(signal, numerator) {
+                const filtered = new Array(signal.length).fill(0);
+                for (let i = 0; i < signal.length; i++) {
+                    filtered[i] = numerator[0] * signal[i];
+                    for (let j = 1; j < numerator.length && (i - j) >= 0; j++) {
+                        filtered[i] += numerator[j] * signal[i - j];
+                    }
+                }
+                return filtered;
+            }
+            
+            robustPower(signal, k) {
+                const squared = signal.map(x => x * x);
+                const sorted = squared.slice().sort((a, b) => a - b);
+                const medianValue = sorted[Math.floor(sorted.length / 2)];
+                const clipped = squared.map(x => Math.min(x, medianValue * k));
+                const sum = clipped.reduce((acc, val) => acc + val, 0);
+                return sum / clipped.length;
+            }
+            
+            instantPower(frame) {
+                let sum = 0;
+                for (let i = 0; i < frame.length; i++) {
+                    sum += frame[i] * frame[i];
+                }
+                return sum / frame.length;
+            }
+            
+            db2pow(db) {
+                return Math.pow(10, db / 10);
+            }
+            
+            processFrame(frame) {
+                const silenceThld = this.db2pow(this.silenceThreshold);
+                if (this.instantPower(frame) < silenceThld) {
+                    this.idx++;
+                    return [];
+                }
+                const r = this.autoCorrelation(frame, this.order);
+                const { lpc } = this.levinsonDurbin(r, this.order);
+                const lpcNorm = this.normalize(lpc.slice());
+                const startProc = Math.max(Math.floor(this.frameSize / 2 - this.hopSize / 2), this.order);
+                const endProc = Math.floor(this.frameSize / 2 + this.hopSize / 2);
+                const subframe = frame.slice(startProc - this.order, endProc + this.order);
+                const e = this.iirFilter(subframe, lpcNorm);
+                const eInv = e.slice().reverse();
+                const matchedCoeff = lpcNorm.map(x => -x);
+                const eMF = this.iirFilter(eInv, matchedCoeff);
+                const eMFinal = eMF.reverse();
+                const robustPowerValue = this.robustPower(e, this.powerEstimationThreshold);
+                const detectionThld = this.db2pow(this.detectionThreshold);
+                const threshold = Math.max(robustPowerValue * detectionThld, silenceThld);
+                const detections = [];
+                for (let i = this.order; i < eMFinal.length - this.order; i++) {
+                    if (eMFinal[i] * eMFinal[i] >= threshold) {
+                        detections.push(startProc + i - this.order);
+                    }
+                }
+                const clicks = [];
+                if (detections.length >= 1) {
+                    let clickStart = (detections[0] + this.idx * this.hopSize) / this.sampleRate;
+                    let end = detections[0];
+                    for (let i = 1; i < detections.length; i++) {
+                        if (detections[i] === detections[i - 1] + 1) {
+                            end = detections[i];
+                        } else {
+                            clicks.push({ start: clickStart, end: (end + this.idx * this.hopSize) / this.sampleRate });
+                            clickStart = (detections[i] + this.idx * this.hopSize) / this.sampleRate;
+                            end = detections[i];
+                        }
+                    }
+                    clicks.push({ start: clickStart, end: (end + this.idx * this.hopSize) / this.sampleRate });
+                }
+                this.idx++;
+                return clicks;
+            }
+            
+            processAudio(audioData) {
+                this.idx = 0;
+                this.clicks = [];
+                for (let i = 0; i < audioData.length - this.frameSize; i += this.hopSize) {
+                    const frame = audioData.slice(i, i + this.frameSize);
+                    const frameClicks = this.processFrame(frame);
+                    this.clicks.push(...frameClicks);
+                }
+                return this.clicks;
+            }
+            
+            reset() {
+                this.idx = 0;
+                this.clicks = [];
+            }
+        }
+
         let audioContext = null;
         let audioBuffer = null;
         let analyser = null;

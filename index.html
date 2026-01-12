@@ -492,6 +492,230 @@
     </div>
 
     <script>
+        // LPC-based Click Detection Implementation
+        // Based on Essentia ClickDetector algorithm
+        // Uses Levinson-Durbin recursion for LPC coefficient calculation
+
+        class LPCAnalyzer {
+            constructor(options = {}) {
+                this.sampleRate = options.sampleRate || 48000;
+                this.order = options.order || 12;
+                this.frameSize = options.frameSize || 512;
+                this.hopSize = options.hopSize || 256;
+                this.detectionThreshold = options.detectionThreshold || 30; // dB
+                this.powerEstimationThreshold = options.powerEstimationThreshold || 10;
+                this.silenceThreshold = options.silenceThreshold || -50; // dB
+                
+                this.idx = 0;
+                this.clicks = [];
+            }
+            
+            // Autocorrelation using direct method
+            autoCorrelation(signal, maxLag) {
+                const n = signal.length;
+                const r = new Array(maxLag + 1).fill(0);
+                
+                for (let lag = 0; lag <= maxLag; lag++) {
+                    let sum = 0;
+                    for (let i = 0; i < n - lag; i++) {
+                        sum += signal[i] * signal[i + lag];
+                    }
+                    r[lag] = sum;
+                }
+                
+                return r;
+            }
+            
+            // Levinson-Durbin recursion for LPC coefficients
+            levinsonDurbin(r, order) {
+                const lpc = new Array(order + 1).fill(0);
+                const reflection = new Array(order).fill(0);
+                const temp = new Array(order).fill(0);
+                
+                let E = r[0];
+                lpc[0] = 1;
+                
+                for (let i = 1; i <= order; i++) {
+                    let k = r[i];
+                    
+                    for (let j = 1; j < i; j++) {
+                        k += r[i - j] * lpc[j];
+                    }
+                    
+                    k /= E;
+                    reflection[i - 1] = k;
+                    lpc[i] = -k;
+                    
+                    for (let j = 1; j < i; j++) {
+                        temp[j] = lpc[j] - k * lpc[i - j];
+                    }
+                    
+                    for (let j = 1; j < i; j++) {
+                        lpc[j] = temp[j];
+                    }
+                    
+                    E *= (1 - k * k);
+                }
+                
+                return { lpc, reflection };
+            }
+            
+            // Normalize LPC coefficients
+            normalize(lpc) {
+                let sum = 0;
+                for (let i = 0; i < lpc.length; i++) {
+                    sum += lpc[i] * lpc[i];
+                }
+                const norm = Math.sqrt(sum);
+                
+                if (norm > 0) {
+                    for (let i = 0; i < lpc.length; i++) {
+                        lpc[i] /= norm;
+                    }
+                }
+                
+                return lpc;
+            }
+            
+            // IIR filter
+            iirFilter(signal, numerator) {
+                const filtered = new Array(signal.length).fill(0);
+                
+                for (let i = 0; i < signal.length; i++) {
+                    filtered[i] = numerator[0] * signal[i];
+                    
+                    for (let j = 1; j < numerator.length && (i - j) >= 0; j++) {
+                        filtered[i] += numerator[j] * signal[i - j];
+                    }
+                }
+                
+                return filtered;
+            }
+            
+            // Robust power estimation using median
+            robustPower(signal, k) {
+                const squared = signal.map(x => x * x);
+                const sorted = squared.slice().sort((a, b) => a - b);
+                const medianValue = sorted[Math.floor(sorted.length / 2)];
+                
+                // Clip values above median * k
+                const clipped = squared.map(x => Math.min(x, medianValue * k));
+                
+                // Return mean of clipped values
+                const sum = clipped.reduce((acc, val) => acc + val, 0);
+                return sum / clipped.length;
+            }
+            
+            // Instant power calculation
+            instantPower(frame) {
+                let sum = 0;
+                for (let i = 0; i < frame.length; i++) {
+                    sum += frame[i] * frame[i];
+                }
+                return sum / frame.length;
+            }
+            
+            // dB to power conversion
+            db2pow(db) {
+                return Math.pow(10, db / 10);
+            }
+            
+            // Process a single frame
+            processFrame(frame) {
+                const silenceThld = this.db2pow(this.silenceThreshold);
+                
+                // Skip silent frames
+                if (this.instantPower(frame) < silenceThld) {
+                    this.idx++;
+                    return [];
+                }
+                
+                // Compute autocorrelation
+                const r = this.autoCorrelation(frame, this.order);
+                
+                // Compute LPC coefficients using Levinson-Durbin
+                const { lpc } = this.levinsonDurbin(r, this.order);
+                
+                // Normalize coefficients
+                const lpcNorm = this.normalize(lpc.slice());
+                
+                // Extract subframe for processing
+                const startProc = Math.max(Math.floor(this.frameSize / 2 - this.hopSize / 2), this.order);
+                const endProc = Math.floor(this.frameSize / 2 + this.hopSize / 2);
+                
+                // Inverse filter (excitation signal)
+                const subframe = frame.slice(startProc - this.order, endProc + this.order);
+                const e = this.iirFilter(subframe, lpcNorm);
+                
+                // Matched filter
+                const eInv = e.slice().reverse();
+                const matchedCoeff = lpcNorm.map(x => -x);
+                const eMF = this.iirFilter(eInv, matchedCoeff);
+                const eMFinal = eMF.reverse();
+                
+                // Robust power threshold
+                const robustPowerValue = this.robustPower(e, this.powerEstimationThreshold);
+                const detectionThld = this.db2pow(this.detectionThreshold);
+                const threshold = Math.max(robustPowerValue * detectionThld, silenceThld);
+                
+                // Detect clicks
+                const detections = [];
+                for (let i = this.order; i < eMFinal.length - this.order; i++) {
+                    if (eMFinal[i] * eMFinal[i] >= threshold) {
+                        detections.push(startProc + i - this.order);
+                    }
+                }
+                
+                // Group consecutive detections into click events
+                const clicks = [];
+                if (detections.length >= 1) {
+                    let clickStart = (detections[0] + this.idx * this.hopSize) / this.sampleRate;
+                    let end = detections[0];
+                    
+                    for (let i = 1; i < detections.length; i++) {
+                        if (detections[i] === detections[i - 1] + 1) {
+                            end = detections[i];
+                        } else {
+                            clicks.push({
+                                start: clickStart,
+                                end: (end + this.idx * this.hopSize) / this.sampleRate
+                            });
+                            clickStart = (detections[i] + this.idx * this.hopSize) / this.sampleRate;
+                            end = detections[i];
+                        }
+                    }
+                    
+                    clicks.push({
+                        start: clickStart,
+                        end: (end + this.idx * this.hopSize) / this.sampleRate
+                    });
+                }
+                
+                this.idx++;
+                return clicks;
+            }
+            
+            // Process entire audio buffer
+            processAudio(audioData) {
+                this.idx = 0;
+                this.clicks = [];
+                
+                // Process frames with overlap
+                for (let i = 0; i < audioData.length - this.frameSize; i += this.hopSize) {
+                    const frame = audioData.slice(i, i + this.frameSize);
+                    const frameClicks = this.processFrame(frame);
+                    this.clicks.push(...frameClicks);
+                }
+                
+                return this.clicks;
+            }
+            
+            reset() {
+                this.idx = 0;
+                this.clicks = [];
+            }
+        }
+
         class PopcornTimer {
             constructor() {
                 this.audioContext = null;
@@ -511,10 +735,17 @@
                 // Pop detection parameters
                 this.threshold = 80; // Frequency threshold for pop detection (lowered to catch more pops)
                 this.cooldownPeriod = 150; // Minimum ms between pops
-                this.lastPeakTime = 0;
+                this.lastPopTime = 0;
                 this.lowFreq = 1000; // Low frequency bound (Hz)
                 this.highFreq = 8000; // High frequency bound (Hz)
                 this.peakThresholdBoost = 40; // Additional threshold for peak amplitude
+                
+                // LPC-based detection
+                this.useLPCDetection = true; // Use LPC-based click detection by default
+                this.lpcAnalyzer = null;
+                this.lpcBuffer = []; // Buffer for LPC frame processing
+                this.lpcFrameSize = 512;
+                this.lpcHopSize = 256;
                 
                 // Debug mode
                 this.debugMode = false;
@@ -659,6 +890,23 @@
                 
                 // Reset state and start
                 this.resetState();
+                
+                // Initialize LPC analyzer for live mode
+                if (this.useLPCDetection) {
+                    this.lpcAnalyzer = new LPCAnalyzer({
+                        sampleRate: this.audioContext.sampleRate,
+                        order: 12,
+                        frameSize: this.lpcFrameSize,
+                        hopSize: this.lpcHopSize,
+                        detectionThreshold: 30,
+                        powerEstimationThreshold: 10,
+                        silenceThreshold: -50
+                    });
+                    console.log('🔬 LPC-based click detection enabled');
+                    console.log('🔧 LPC order: 12, Frame size: 512, Hop: 256');
+                    console.log('🔧 Detection threshold: +30dB above noise floor');
+                }
+                
                 this.updateUI('Listening...');
                 console.log('🎤 Live mode started, threshold:', this.threshold);
                 this.analyze();
@@ -715,15 +963,36 @@
                 
                 // Reset state and start
                 this.resetState();
+                
+                // Initialize LPC analyzer for debug mode
+                if (this.useLPCDetection) {
+                    this.lpcAnalyzer = new LPCAnalyzer({
+                        sampleRate: this.audioContext.sampleRate,
+                        order: 12,
+                        frameSize: this.lpcFrameSize,
+                        hopSize: this.lpcHopSize,
+                        detectionThreshold: 30,
+                        powerEstimationThreshold: 10,
+                        silenceThreshold: -50
+                    });
+                    console.log('🔬 LPC-based click detection enabled');
+                }
+                
                 this.updateUI(`Analyzing: ${this.audioFileInput.files[0].name}`);
                 
                 console.log('🔧 Debug mode started, start time:', startTime + 's');
                 console.log('🔧 Audio duration:', this.audioBuffer.duration.toFixed(2) + 's');
                 console.log('🔧 Sample rate:', this.audioContext.sampleRate + 'Hz');
-                console.log('🔧 Threshold:', this.threshold);
-                console.log('🔧 Cooldown:', this.cooldownPeriod + 'ms');
-                console.log('🔧 Frequency range:', this.lowFreq + '-' + this.highFreq + 'Hz');
-                console.log('🔧 Peak boost:', this.peakThresholdBoost);
+                
+                if (this.useLPCDetection) {
+                    console.log('🔧 LPC order: 12, Frame size: 512, Hop: 256');
+                    console.log('🔧 Detection threshold: +30dB above noise floor');
+                } else {
+                    console.log('🔧 Threshold:', this.threshold);
+                    console.log('🔧 Cooldown:', this.cooldownPeriod + 'ms');
+                    console.log('🔧 Frequency range:', this.lowFreq + '-' + this.highFreq + 'Hz');
+                    console.log('🔧 Peak boost:', this.peakThresholdBoost);
+                }
                 
                 // Start playback from specified time
                 this.audioSource.start(0, startTime);
@@ -744,6 +1013,10 @@
                 this.lastPopTime = 0;
                 this.lastPeakTime = 0;
                 this.frequencyHistory = [];
+                this.lpcBuffer = []; // Reset LPC buffer
+                if (this.lpcAnalyzer) {
+                    this.lpcAnalyzer.reset();
+                }
             }
 
             updateUI(statusText) {
@@ -829,6 +1102,67 @@
                 const cutoffTime = now - this.maxHistoryDuration;
                 this.frequencyHistory = this.frequencyHistory.filter(h => h.timestamp > cutoffTime);
                 
+                // Use LPC-based detection if enabled
+                if (this.useLPCDetection && this.lpcAnalyzer) {
+                    this.detectPopLPC(now);
+                } else {
+                    this.detectPopFFT(now);
+                }
+            }
+            
+            detectPopLPC(now) {
+                // Get time-domain data for LPC processing
+                this.analyser.getByteTimeDomainData(this.dataArray);
+                
+                // Convert Uint8Array to Float32Array normalized to [-1, 1]
+                const audioData = new Float32Array(this.dataArray.length);
+                for (let i = 0; i < this.dataArray.length; i++) {
+                    audioData[i] = (this.dataArray[i] - 128) / 128.0;
+                }
+                
+                // Add to LPC buffer
+                this.lpcBuffer.push(...audioData);
+                
+                // Process frames when we have enough data
+                while (this.lpcBuffer.length >= this.lpcFrameSize) {
+                    const frame = this.lpcBuffer.slice(0, this.lpcFrameSize);
+                    const clicks = this.lpcAnalyzer.processFrame(frame);
+                    
+                    // Register detected clicks as pops
+                    for (const click of clicks) {
+                        const clickTime = now - (this.audioContext.currentTime - click.start) * 1000;
+                        
+                        // Check cooldown
+                        if (clickTime - this.lastPopTime > this.cooldownPeriod) {
+                            this.lastPopTime = clickTime;
+                            this.popTimes.push(clickTime);
+                            
+                            const currentTime = (clickTime - this.startTime) / 1000;
+                            console.log('🍿 CLICK #' + this.popTimes.length + ' detected!',
+                                       'Time:', currentTime.toFixed(2) + 's',
+                                       'Duration:', ((click.end - click.start) * 1000).toFixed(1) + 'ms');
+                            
+                            // Update UI
+                            this.popCount.textContent = `Pops detected: ${this.popTimes.length}`;
+                            this.updatePopIndicators();
+                            this.flashPopIndicator();
+                        }
+                    }
+                    
+                    // Slide buffer by hop size
+                    this.lpcBuffer = this.lpcBuffer.slice(this.lpcHopSize);
+                }
+                
+                // Log every second for debugging
+                if (now - this.lastLogTime > 1000 || !this.lastLogTime) {
+                    this.lastLogTime = now;
+                    console.log('📊 Frame ' + this.lpcAnalyzer.idx,
+                               'Time:', ((now - this.startTime) / 1000).toFixed(1) + 's',
+                               'Buffer:', this.lpcBuffer.length);
+                }
+            }
+            
+            detectPopFFT(now) {
                 // Focus on configurable frequency range where pops occur
                 // Sample rate is typically 44100Hz or 48000Hz
                 // frequencyBinCount is fftSize / 2 = 1024
@@ -865,8 +1199,7 @@
                 // Detect peak with both average energy and max amplitude (using configurable boost)
                 const isSignificantPeak = avgEnergy > adaptiveThreshold || maxAmplitude > (adaptiveThreshold + this.peakThresholdBoost);
                 
-                if (isSignificantPeak && (now - this.lastPeakTime) > this.cooldownPeriod) {
-                    this.lastPeakTime = now;
+                if (isSignificantPeak && (now - this.lastPopTime) > this.cooldownPeriod) {
                     this.lastPopTime = now;
                     this.popTimes.push(now);
                     
