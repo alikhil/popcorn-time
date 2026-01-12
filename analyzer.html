@@ -235,8 +235,14 @@
                 const { lpc } = this.levinsonDurbin(r, this.order);
                 const lpcNorm = this.normalize(lpc.slice());
                 const startProc = Math.max(Math.floor(this.frameSize / 2 - this.hopSize / 2), this.order);
-                const endProc = Math.floor(this.frameSize / 2 + this.hopSize / 2);
-                const subframe = frame.slice(startProc - this.order, endProc + this.order);
+                const endProc = Math.min(Math.floor(this.frameSize / 2 + this.hopSize / 2), frame.length - this.order);
+                const subframeStart = Math.max(0, startProc - this.order);
+                const subframeEnd = Math.min(frame.length, endProc + this.order);
+                const subframe = frame.slice(subframeStart, subframeEnd);
+                if (subframe.length < this.order * 2) {
+                    this.idx++;
+                    return [];
+                }
                 const e = this.iirFilter(subframe, lpcNorm);
                 const eInv = e.slice().reverse();
                 const matchedCoeff = lpcNorm.map(x => -x);

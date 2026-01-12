@@ -639,12 +639,21 @@
                 // Normalize coefficients
                 const lpcNorm = this.normalize(lpc.slice());
                 
-                // Extract subframe for processing
+                // Extract subframe for processing with bounds checking
                 const startProc = Math.max(Math.floor(this.frameSize / 2 - this.hopSize / 2), this.order);
-                const endProc = Math.floor(this.frameSize / 2 + this.hopSize / 2);
+                const endProc = Math.min(Math.floor(this.frameSize / 2 + this.hopSize / 2), frame.length - this.order);
                 
-                // Inverse filter (excitation signal)
-                const subframe = frame.slice(startProc - this.order, endProc + this.order);
+                // Inverse filter (excitation signal) with safe bounds
+                const subframeStart = Math.max(0, startProc - this.order);
+                const subframeEnd = Math.min(frame.length, endProc + this.order);
+                const subframe = frame.slice(subframeStart, subframeEnd);
+                
+                // Skip if subframe is too small
+                if (subframe.length < this.order * 2) {
+                    this.idx++;
+                    return [];
+                }
+                
                 const e = this.iirFilter(subframe, lpcNorm);
                 
                 // Matched filter
@@ -1011,7 +1020,6 @@
                 this.startTime = Date.now();
                 this.popTimes = [];
                 this.lastPopTime = 0;
-                this.lastPeakTime = 0;
                 this.frequencyHistory = [];
                 this.lpcBuffer = []; // Reset LPC buffer
                 if (this.lpcAnalyzer) {
@@ -1130,7 +1138,9 @@
                     
                     // Register detected clicks as pops
                     for (const click of clicks) {
-                        const clickTime = now - (this.audioContext.currentTime - click.start) * 1000;
+                        // click.start is already in seconds from the beginning of the audio
+                        // Convert to timestamp based on startTime
+                        const clickTime = this.startTime + (click.start * 1000);
                         
                         // Check cooldown
                         if (clickTime - this.lastPopTime > this.cooldownPeriod) {
