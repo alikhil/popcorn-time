@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Popcorn Audio Analyzer - Troubleshooting</title>
+    <style>
+        body {
+            font-family: monospace;
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 20px;
+            margin: 0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            color: #4ec9b0;
+        }
+        .controls {
+            background: #252526;
+            padding: 20px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            cursor: pointer;
+            border-radius: 3px;
+            margin: 5px;
+        }
+        button:hover {
+            background: #005a9e;
+        }
+        .log {
+            background: #252526;
+            padding: 15px;
+            border-radius: 5px;
+            max-height: 600px;
+            overflow-y: auto;
+            font-size: 12px;
+            line-height: 1.5;
+        }
+        .log-entry {
+            margin: 5px 0;
+            border-left: 3px solid #444;
+            padding-left: 10px;
+        }
+        .log-info { border-color: #4ec9b0; color: #4ec9b0; }
+        .log-success { border-color: #4caf50; color: #4caf50; }
+        .log-warning { border-color: #ff9800; color: #ff9800; }
+        .log-error { border-color: #f44336; color: #f44336; }
+        .log-pop { border-color: #ffd700; color: #ffd700; font-weight: bold; }
+        canvas {
+            border: 1px solid #444;
+            border-radius: 5px;
+            background: #1e1e1e;
+            display: block;
+            margin: 20px 0;
+            width: 100%;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        .stat-box {
+            background: #252526;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 3px solid #007acc;
+        }
+        .stat-label {
+            color: #888;
+            font-size: 11px;
+            text-transform: uppercase;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4ec9b0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍿 Popcorn Audio Analyzer</h1>
+        <p>Troubleshooting tool for analyzing popcorn pop detection</p>
+        
+        <div class="controls">
+            <button onclick="loadSample()">Load Sample Audio</button>
+            <button onclick="analyzeAudio()">Start Analysis</button>
+            <button onclick="clearLog()">Clear Log</button>
+            <input type="file" id="fileInput" accept="audio/*" style="margin: 10px 0;">
+        </div>
+
+        <div class="stats">
+            <div class="stat-box">
+                <div class="stat-label">Pops Detected</div>
+                <div class="stat-value" id="popCount">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Duration</div>
+                <div class="stat-value" id="duration">0s</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Sample Rate</div>
+                <div class="stat-value" id="sampleRate">0 Hz</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Max Energy</div>
+                <div class="stat-value" id="maxEnergy">0</div>
+            </div>
+        </div>
+
+        <canvas id="waveform" width="1000" height="200"></canvas>
+        <canvas id="spectrum" width="1000" height="300"></canvas>
+
+        <div class="log" id="log"></div>
+    </div>
+
+    <script>
+        // LPC-based Click Detection Implementation
+        // Based on Essentia ClickDetector algorithm
+        class LPCAnalyzer {
+            constructor(options = {}) {
+                this.sampleRate = options.sampleRate || 48000;
+                this.order = options.order || 12;
+                this.frameSize = options.frameSize || 512;
+                this.hopSize = options.hopSize || 256;
+                this.detectionThreshold = options.detectionThreshold || 30;
+                this.powerEstimationThreshold = options.powerEstimationThreshold || 10;
+                this.silenceThreshold = options.silenceThreshold || -50;
+                this.idx = 0;
+                this.clicks = [];
+            }
+            
+            autoCorrelation(signal, maxLag) {
+                const n = signal.length;
+                const r = new Array(maxLag + 1).fill(0);
+                for (let lag = 0; lag <= maxLag; lag++) {
+                    let sum = 0;
+                    for (let i = 0; i < n - lag; i++) {
+                        sum += signal[i] * signal[i + lag];
+                    }
+                    r[lag] = sum;
+                }
+                return r;
+            }
+            
+            levinsonDurbin(r, order) {
+                const lpc = new Array(order + 1).fill(0);
+                const reflection = new Array(order).fill(0);
+                const temp = new Array(order).fill(0);
+                let E = r[0];
+                lpc[0] = 1;
+                for (let i = 1; i <= order; i++) {
+                    let k = r[i];
+                    for (let j = 1; j < i; j++) {
+                        k += r[i - j] * lpc[j];
+                    }
+                    k /= E;
+                    reflection[i - 1] = k;
+                    lpc[i] = -k;
+                    for (let j = 1; j < i; j++) {
+                        temp[j] = lpc[j] - k * lpc[i - j];
+                    }
+                    for (let j = 1; j < i; j++) {
+                        lpc[j] = temp[j];
+                    }
+                    E *= (1 - k * k);
+                }
+                return { lpc, reflection };
+            }
+            
+            normalize(lpc) {
+                let sum = 0;
+                for (let i = 0; i < lpc.length; i++) {
+                    sum += lpc[i] * lpc[i];
+                }
+                const norm = Math.sqrt(sum);
+                if (norm > 0) {
+                    for (let i = 0; i < lpc.length; i++) {
+                        lpc[i] /= norm;
+                    }
+                }
+                return lpc;
+            }
+            
+            iirFilter(signal, numerator) {
+                const filtered = new Array(signal.length).fill(0);
+                for (let i = 0; i < signal.length; i++) {
+                    filtered[i] = numerator[0] * signal[i];
+                    for (let j = 1; j < numerator.length && (i - j) >= 0; j++) {
+                        filtered[i] += numerator[j] * signal[i - j];
+                    }
+                }
+                return filtered;
+            }
+            
+            robustPower(signal, k) {
+                const squared = signal.map(x => x * x);
+                const sorted = squared.slice().sort((a, b) => a - b);
+                const medianValue = sorted[Math.floor(sorted.length / 2)];
+                const clipped = squared.map(x => Math.min(x, medianValue * k));
+                const sum = clipped.reduce((acc, val) => acc + val, 0);
+                return sum / clipped.length;
+            }
+            
+            instantPower(frame) {
+                let sum = 0;
+                for (let i = 0; i < frame.length; i++) {
+                    sum += frame[i] * frame[i];
+                }
+                return sum / frame.length;
+            }
+            
+            db2pow(db) {
+                return Math.pow(10, db / 10);
+            }
+            
+            processFrame(frame) {
+                const silenceThld = this.db2pow(this.silenceThreshold);
+                if (this.instantPower(frame) < silenceThld) {
+                    this.idx++;
+                    return [];
+                }
+                const r = this.autoCorrelation(frame, this.order);
+                const { lpc } = this.levinsonDurbin(r, this.order);
+                const lpcNorm = this.normalize(lpc.slice());
+                const startProc = Math.max(Math.floor(this.frameSize / 2 - this.hopSize / 2), this.order);
+                const endProc = Math.min(Math.floor(this.frameSize / 2 + this.hopSize / 2), frame.length - this.order);
+                const subframeStart = Math.max(0, startProc - this.order);
+                const subframeEnd = Math.min(frame.length, endProc + this.order);
+                const subframe = frame.slice(subframeStart, subframeEnd);
+                if (subframe.length < this.order * 2) {
+                    this.idx++;
+                    return [];
+                }
+                const e = this.iirFilter(subframe, lpcNorm);
+                const eInv = e.slice().reverse();
+                const matchedCoeff = lpcNorm.map(x => -x);
+                const eMF = this.iirFilter(eInv, matchedCoeff);
+                const eMFinal = eMF.reverse();
+                const robustPowerValue = this.robustPower(e, this.powerEstimationThreshold);
+                const detectionThld = this.db2pow(this.detectionThreshold);
+                const threshold = Math.max(robustPowerValue * detectionThld, silenceThld);
+                const detections = [];
+                for (let i = this.order; i < eMFinal.length - this.order; i++) {
+                    if (eMFinal[i] * eMFinal[i] >= threshold) {
+                        detections.push(startProc + i - this.order);
+                    }
+                }
+                const clicks = [];
+                if (detections.length >= 1) {
+                    let clickStart = (detections[0] + this.idx * this.hopSize) / this.sampleRate;
+                    let end = detections[0];
+                    for (let i = 1; i < detections.length; i++) {
+                        if (detections[i] === detections[i - 1] + 1) {
+                            end = detections[i];
+                        } else {
+                            clicks.push({ start: clickStart, end: (end + this.idx * this.hopSize) / this.sampleRate });
+                            clickStart = (detections[i] + this.idx * this.hopSize) / this.sampleRate;
+                            end = detections[i];
+                        }
+                    }
+                    clicks.push({ start: clickStart, end: (end + this.idx * this.hopSize) / this.sampleRate });
+                }
+                this.idx++;
+                return clicks;
+            }
+            
+            processAudio(audioData) {
+                this.idx = 0;
+                this.clicks = [];
+                for (let i = 0; i < audioData.length - this.frameSize; i += this.hopSize) {
+                    const frame = audioData.slice(i, i + this.frameSize);
+                    const frameClicks = this.processFrame(frame);
+                    this.clicks.push(...frameClicks);
+                }
+                return this.clicks;
+            }
+            
+            reset() {
+                this.idx = 0;
+                this.clicks = [];
+            }
+        }
+
+        let audioContext = null;
+        let audioBuffer = null;
+        let analyser = null;
+        let source = null;
+        let isAnalyzing = false;
+        let popTimes = [];
+
+        const THRESHOLD = 80;
+        const ADAPTIVE_THRESHOLD = 70;
+        const COOLDOWN_MS = 150;
+        const LOW_FREQ = 1000;
+        const HIGH_FREQ = 8000;
+
+        function log(message, type = 'info') {
+            const logEl = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logEl.appendChild(entry);
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(message);
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            popTimes = [];
+            document.getElementById('popCount').textContent = '0';
+        }
+
+        async function loadSample() {
+            try {
+                log('Loading sample audio file...', 'info');
+                const response = await fetch('./samples/score-4.5-a-bit-burned.m4a');
+                if (!response.ok) throw new Error('Failed to load sample');
+                
+                const arrayBuffer = await response.arrayBuffer();
+                log(`Loaded ${(arrayBuffer.byteLength / 1024).toFixed(2)} KB`, 'success');
+                
+                await decodeAudio(arrayBuffer);
+            } catch (error) {
+                log(`Error loading sample: ${error.message}`, 'error');
+            }
+        }
+
+        document.getElementById('fileInput').addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            log(`Loading file: ${file.name}`, 'info');
+            const arrayBuffer = await file.arrayBuffer();
+            await decodeAudio(arrayBuffer);
+        });
+
+        async function decodeAudio(arrayBuffer) {
+            try {
+                if (!audioContext) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
+                log('Decoding audio...', 'info');
+                audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+                
+                const duration = audioBuffer.duration;
+                const sampleRate = audioBuffer.sampleRate;
+                const channels = audioBuffer.numberOfChannels;
+                
+                document.getElementById('duration').textContent = duration.toFixed(2) + 's';
+                document.getElementById('sampleRate').textContent = sampleRate + ' Hz';
+                
+                log(`✓ Audio decoded successfully`, 'success');
+                log(`  Duration: ${duration.toFixed(2)}s`, 'info');
+                log(`  Sample rate: ${sampleRate} Hz`, 'info');
+                log(`  Channels: ${channels}`, 'info');
+                log(`  Length: ${audioBuffer.length} samples`, 'info');
+                
+                drawWaveform();
+                
+            } catch (error) {
+                log(`Error decoding audio: ${error.message}`, 'error');
+            }
+        }
+
+        function drawWaveform() {
+            const canvas = document.getElementById('waveform');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            ctx.fillStyle = '#1e1e1e';
+            ctx.fillRect(0, 0, width, height);
+            
+            const data = audioBuffer.getChannelData(0);
+            const step = Math.ceil(data.length / width);
+            const amp = height / 2;
+            
+            ctx.strokeStyle = '#4ec9b0';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            
+            for (let i = 0; i < width; i++) {
+                let min = 1.0;
+                let max = -1.0;
+                for (let j = 0; j < step; j++) {
+                    const datum = data[(i * step) + j];
+                    if (datum < min) min = datum;
+                    if (datum > max) max = datum;
+                }
+                ctx.moveTo(i, (1 + min) * amp);
+                ctx.lineTo(i, (1 + max) * amp);
+            }
+            ctx.stroke();
+            
+            log('Waveform drawn', 'success');
+        }
+
+        async function analyzeAudio() {
+            if (!audioBuffer) {
+                log('No audio loaded', 'error');
+                return;
+            }
+            
+            if (isAnalyzing) {
+                log('Already analyzing', 'warning');
+                return;
+            }
+            
+            isAnalyzing = true;
+            popTimes = [];
+            document.getElementById('popCount').textContent = '0';
+            document.getElementById('maxEnergy').textContent = '0';
+            
+            log('═══════════════════════════════════', 'info');
+            log('Starting analysis...', 'info');
+            log(`Threshold: ${THRESHOLD} (adaptive: ${ADAPTIVE_THRESHOLD})`, 'info');
+            log(`Frequency range: ${LOW_FREQ}-${HIGH_FREQ} Hz`, 'info');
+            log(`Cooldown: ${COOLDOWN_MS}ms`, 'info');
+            log('═══════════════════════════════════', 'info');
+            
+            // Create analyser
+            analyser = audioContext.createAnalyser();
+            analyser.fftSize = 2048;
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+            
+            // Create source
+            source = audioContext.createBufferSource();
+            source.buffer = audioBuffer;
+            source.connect(analyser);
+            source.connect(audioContext.destination);
+            
+            const startTime = audioContext.currentTime;
+            let lastPeakTime = 0;
+            let lastLogTime = 0;
+            let maxEnergyRecorded = 0;
+            
+            // Analysis loop
+            const analyzeFrame = () => {
+                if (!isAnalyzing) return;
+                
+                analyser.getByteFrequencyData(dataArray);
+                
+                const now = audioContext.currentTime - startTime;
+                const sampleRate = audioContext.sampleRate;
+                const binWidth = sampleRate / analyser.fftSize;
+                const lowBin = Math.floor(LOW_FREQ / binWidth);
+                const highBin = Math.floor(HIGH_FREQ / binWidth);
+                
+                let energy = 0;
+                let maxAmp = 0;
+                let peakFreq = 0;
+                
+                for (let i = lowBin; i < highBin && i < dataArray.length; i++) {
+                    energy += dataArray[i];
+                    if (dataArray[i] > maxAmp) {
+                        maxAmp = dataArray[i];
+                        peakFreq = i * binWidth;
+                    }
+                }
+                
+                const avgEnergy = energy / (highBin - lowBin);
+                
+                if (avgEnergy > maxEnergyRecorded) {
+                    maxEnergyRecorded = avgEnergy;
+                    document.getElementById('maxEnergy').textContent = avgEnergy.toFixed(1);
+                }
+                
+                // Log every second
+                if (now - lastLogTime >= 1.0) {
+                    lastLogTime = now;
+                    log(`[${now.toFixed(1)}s] Energy: ${avgEnergy.toFixed(1)}, Max: ${maxAmp}, Peak: ${peakFreq.toFixed(0)}Hz`, 'info');
+                }
+                
+                // Detect pop
+                const threshold = popTimes.length < 3 ? ADAPTIVE_THRESHOLD : THRESHOLD;
+                const isSignificant = avgEnergy > threshold || maxAmp > (threshold + 40);
+                
+                if (isSignificant && (now - lastPeakTime) > (COOLDOWN_MS / 1000)) {
+                    lastPeakTime = now;
+                    popTimes.push(now);
+                    document.getElementById('popCount').textContent = popTimes.length;
+                    log(`🍿 POP #${popTimes.length} at ${now.toFixed(2)}s | Energy: ${avgEnergy.toFixed(1)}, Peak: ${maxAmp}, Freq: ${peakFreq.toFixed(0)}Hz, Threshold: ${threshold}`, 'pop');
+                    drawSpectrumSnapshot(dataArray, now);
+                }
+                
+                if (now < audioBuffer.duration) {
+                    requestAnimationFrame(analyzeFrame);
+                } else {
+                    finishAnalysis();
+                }
+            };
+            
+            source.start(0);
+            analyzeFrame();
+            
+            source.onended = () => {
+                if (isAnalyzing) finishAnalysis();
+            };
+        }
+
+        function drawSpectrumSnapshot(data, time) {
+            const canvas = document.getElementById('spectrum');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            
+            // Shift existing content left
+            const imageData = ctx.getImageData(5, 0, width - 5, height);
+            ctx.putImageData(imageData, 0, 0);
+            
+            // Draw new column
+            const barWidth = 5;
+            for (let i = 0; i < data.length; i++) {
+                const value = data[i];
+                const percent = value / 255;
+                const hue = 240 - (percent * 120);
+                const y = height - (i / data.length) * height;
+                
+                ctx.fillStyle = `hsl(${hue}, 70%, ${40 + percent * 20}%)`;
+                ctx.fillRect(width - barWidth, y, barWidth, height / data.length);
+            }
+        }
+
+        function finishAnalysis() {
+            isAnalyzing = false;
+            log('═══════════════════════════════════', 'info');
+            log(`Analysis complete!`, 'success');
+            log(`Total pops detected: ${popTimes.length}`, 'success');
+            
+            if (popTimes.length > 0) {
+                log(`First pop at: ${popTimes[0].toFixed(2)}s`, 'info');
+                log(`Last pop at: ${popTimes[popTimes.length - 1].toFixed(2)}s`, 'info');
+                
+                const intervals = [];
+                for (let i = 1; i < popTimes.length; i++) {
+                    intervals.push(popTimes[i] - popTimes[i - 1]);
+                }
+                if (intervals.length > 0) {
+                    const avgInterval = intervals.reduce((a, b) => a + b) / intervals.length;
+                    log(`Average interval: ${avgInterval.toFixed(2)}s`, 'info');
+                }
+            } else {
+                log('⚠️ No pops detected!', 'warning');
+                log('Possible reasons:', 'warning');
+                log('  - Audio volume too low', 'warning');
+                log('  - Pops outside frequency range', 'warning');
+                log('  - Threshold too high', 'warning');
+                log('  - No actual pops in audio', 'warning');
+            }
+            log('═══════════════════════════════════', 'info');
+        }
+    </script>
+</body>
+</html>

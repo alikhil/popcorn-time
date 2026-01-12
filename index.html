@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Popcorn Timer - Listen to your microwave popcorn pops and get optimal timing suggestions">
+    <title>Popcorn Timer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        h1 {
+            text-align: center;
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 2em;
+        }
+
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 0.9em;
+        }
+
+        .status {
+            text-align: center;
+            padding: 20px;
+            background: #f7f7f7;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .status-text {
+            font-size: 1.2em;
+            color: #667eea;
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+
+        .timer {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #764ba2;
+            margin: 10px 0;
+        }
+
+        .pop-count {
+            font-size: 1.5em;
+            color: #333;
+            margin: 10px 0;
+        }
+
+        .pop-indicator {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            background: #ddd;
+            border-radius: 50%;
+            margin: 0 5px;
+            transition: all 0.3s ease;
+        }
+
+        .pop-indicator.active {
+            background: #667eea;
+            transform: scale(1.5);
+        }
+
+        .recommendation {
+            background: #fffbea;
+            border: 2px solid #ffd600;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            text-align: center;
+            font-size: 1.1em;
+            color: #886800;
+            font-weight: 600;
+            display: none;
+        }
+
+        .recommendation.show {
+            display: block;
+            animation: pulse 1s ease infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+
+        .warning {
+            background: #fee;
+            border: 2px solid #f00;
+            color: #c00;
+        }
+
+        button {
+            width: 100%;
+            padding: 15px;
+            font-size: 1.2em;
+            font-weight: 600;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            margin-top: 10px;
+        }
+
+        .start-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .start-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .stop-btn {
+            background: #f44336;
+            color: white;
+        }
+
+        .stop-btn:hover {
+            background: #d32f2f;
+            transform: translateY(-2px);
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .visualizer {
+            width: 100%;
+            height: 100px;
+            background: #f7f7f7;
+            border-radius: 10px;
+            margin: 20px 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .visualizer canvas {
+            width: 100%;
+            height: 100%;
+        }
+
+        .info {
+            background: #e3f2fd;
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 20px;
+            font-size: 0.9em;
+            color: #555;
+        }
+
+        .info h3 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+
+        .info ul {
+            padding-left: 20px;
+        }
+
+        .info li {
+            margin: 5px 0;
+        }
+
+        .error {
+            background: #ffebee;
+            border: 2px solid #f44336;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+            color: #c62828;
+            text-align: center;
+            display: none;
+        }
+
+        .error.show {
+            display: block;
+        }
+
+        .debug-section {
+            background: #fff3e0;
+            border: 2px solid #ff9800;
+            border-radius: 10px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        .debug-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .debug-header h3 {
+            color: #e65100;
+            margin: 0;
+            font-size: 1.1em;
+        }
+
+        .debug-toggle {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+
+        .debug-toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .debug-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: 0.4s;
+            border-radius: 24px;
+        }
+
+        .debug-slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+
+        .debug-toggle input:checked + .debug-slider {
+            background-color: #ff9800;
+        }
+
+        .debug-toggle input:checked + .debug-slider:before {
+            transform: translateX(26px);
+        }
+
+        .debug-controls {
+            display: none;
+        }
+
+        .debug-controls.active {
+            display: block;
+        }
+
+        .file-upload {
+            margin: 15px 0;
+        }
+
+        .file-upload label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #e65100;
+        }
+
+        .file-upload input[type="file"] {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            border: 2px dashed #ff9800;
+            border-radius: 8px;
+            background: white;
+            cursor: pointer;
+            font-size: 0.9em;
+        }
+
+        .file-upload input[type="file"]::file-selector-button {
+            padding: 8px 16px;
+            border: none;
+            background: #ff9800;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+            font-weight: 600;
+        }
+
+        .file-upload input[type="file"]::file-selector-button:hover {
+            background: #f57c00;
+        }
+
+        .debug-options {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #ffcc80;
+        }
+
+        .debug-option {
+            margin: 10px 0;
+        }
+
+        .debug-option label {
+            display: block;
+            font-weight: 600;
+            color: #e65100;
+            margin-bottom: 5px;
+            font-size: 0.9em;
+        }
+
+        .debug-option input[type="number"] {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid #ffcc80;
+            border-radius: 5px;
+            font-size: 0.95em;
+        }
+
+        .debug-option input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+            vertical-align: middle;
+        }
+
+        .debug-option label:has(input[type="checkbox"]) {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .debug-params {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #ffcc80;
+        }
+
+        .debug-hint {
+            display: block;
+            font-size: 0.8em;
+            color: #888;
+            margin-top: 4px;
+            font-weight: normal;
+        }
+
+        .debug-info {
+            font-size: 0.85em;
+            color: #666;
+            margin-top: 8px;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            h1 {
+                font-size: 1.5em;
+            }
+
+            .timer {
+                font-size: 2em;
+            }
+
+            .pop-count {
+                font-size: 1.2em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🍿 Popcorn Timer</h1>
+        <p class="subtitle">Perfect popcorn, every time</p>
+
+        <div class="error" id="error"></div>
+
+        <div class="debug-section">
+            <div class="debug-header">
+                <h3>🔧 Debug Mode</h3>
+                <label class="debug-toggle">
+                    <input type="checkbox" id="debugToggle">
+                    <span class="debug-slider"></span>
+                </label>
+            </div>
+            <div class="debug-controls" id="debugControls">
+                <div class="file-upload">
+                    <label for="audioFile">Upload Audio Recording:</label>
+                    <input type="file" id="audioFile" accept="audio/*,.mp3,.wav,.ogg,.m4a,.webm,.aac,.mp4">
+                    <div class="debug-info">
+                        Supported formats: MP3, WAV, OGG, M4A, WebM
+                    </div>
+                </div>
+                <div class="debug-options">
+                    <div class="debug-option">
+                        <label for="debugStartTime">Start Time (seconds):</label>
+                        <input type="number" id="debugStartTime" min="0" step="0.1" value="0" placeholder="0">
+                    </div>
+                    <div class="debug-option">
+                        <label for="debugPlayback">
+                            <input type="checkbox" id="debugPlayback" checked>
+                            Play audio during analysis
+                        </label>
+                    </div>
+                </div>
+                <div class="debug-params">
+                    <h4 style="margin: 15px 0 10px 0; font-size: 0.95em; color: #666;">Pop Detection Parameters:</h4>
+                    <div class="debug-option">
+                        <label for="debugThreshold">Energy Threshold:</label>
+                        <input type="number" id="debugThreshold" min="10" max="200" step="5" value="80" placeholder="80">
+                        <span class="debug-hint">Lower = more sensitive (default: 80)</span>
+                    </div>
+                    <div class="debug-option">
+                        <label for="debugCooldown">Cooldown Period (ms):</label>
+                        <input type="number" id="debugCooldown" min="50" max="500" step="10" value="150" placeholder="150">
+                        <span class="debug-hint">Time between detections (default: 150ms)</span>
+                    </div>
+                    <div class="debug-option">
+                        <label for="debugLowFreq">Low Frequency (Hz):</label>
+                        <input type="number" id="debugLowFreq" min="500" max="5000" step="100" value="1000" placeholder="1000">
+                        <span class="debug-hint">Lower bound of pop range (default: 1000Hz)</span>
+                    </div>
+                    <div class="debug-option">
+                        <label for="debugHighFreq">High Frequency (Hz):</label>
+                        <input type="number" id="debugHighFreq" min="2000" max="12000" step="100" value="8000" placeholder="8000">
+                        <span class="debug-hint">Upper bound of pop range (default: 8000Hz)</span>
+                    </div>
+                    <div class="debug-option">
+                        <label for="debugPeakThreshold">Peak Amplitude Boost:</label>
+                        <input type="number" id="debugPeakThreshold" min="0" max="100" step="5" value="40" placeholder="40">
+                        <span class="debug-hint">Added to threshold for peak detection (default: 40)</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="status">
+            <div class="status-text" id="statusText">Ready to start</div>
+            <div class="timer" id="timer">0:00</div>
+            <div class="pop-count" id="popCount">Pops detected: 0</div>
+            <div id="popIndicators"></div>
+        </div>
+
+        <div class="visualizer">
+            <canvas id="visualizer"></canvas>
+        </div>
+
+        <div class="recommendation" id="recommendation"></div>
+
+        <button class="start-btn" id="startBtn">Start Listening</button>
+        <button class="stop-btn" id="stopBtn" style="display: none;">Stop</button>
+
+        <div class="info">
+            <h3>How to use:</h3>
+            <ul>
+                <li>Place your phone near the microwave</li>
+                <li>Click "Start Listening" and allow microphone access</li>
+                <li>Start your popcorn in the microwave</li>
+                <li>The app will detect pops and suggest when to stop</li>
+                <li>Stop when pops slow to 2-3 seconds apart</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // LPC-based Click Detection Implementation
+        // Based on Essentia ClickDetector algorithm
+        // Uses Levinson-Durbin recursion for LPC coefficient calculation
+
+        class LPCAnalyzer {
+            constructor(options = {}) {
+                this.sampleRate = options.sampleRate || 48000;
+                this.order = options.order || 12;
+                this.frameSize = options.frameSize || 512;
+                this.hopSize = options.hopSize || 256;
+                this.detectionThreshold = options.detectionThreshold || 30; // dB
+                this.powerEstimationThreshold = options.powerEstimationThreshold || 10;
+                this.silenceThreshold = options.silenceThreshold || -50; // dB
+                
+                this.idx = 0;
+                this.clicks = [];
+            }
+            
+            // Autocorrelation using direct method
+            autoCorrelation(signal, maxLag) {
+                const n = signal.length;
+                const r = new Array(maxLag + 1).fill(0);
+                
+                for (let lag = 0; lag <= maxLag; lag++) {
+                    let sum = 0;
+                    for (let i = 0; i < n - lag; i++) {
+                        sum += signal[i] * signal[i + lag];
+                    }
+                    r[lag] = sum;
+                }
+                
+                return r;
+            }
+            
+            // Levinson-Durbin recursion for LPC coefficients
+            levinsonDurbin(r, order) {
+                const lpc = new Array(order + 1).fill(0);
+                const reflection = new Array(order).fill(0);
+                const temp = new Array(order).fill(0);
+                
+                let E = r[0];
+                lpc[0] = 1;
+                
+                for (let i = 1; i <= order; i++) {
+                    let k = r[i];
+                    
+                    for (let j = 1; j < i; j++) {
+                        k += r[i - j] * lpc[j];
+                    }
+                    
+                    k /= E;
+                    reflection[i - 1] = k;
+                    lpc[i] = -k;
+                    
+                    for (let j = 1; j < i; j++) {
+                        temp[j] = lpc[j] - k * lpc[i - j];
+                    }
+                    
+                    for (let j = 1; j < i; j++) {
+                        lpc[j] = temp[j];
+                    }
+                    
+                    E *= (1 - k * k);
+                }
+                
+                return { lpc, reflection };
+            }
+            
+            // Normalize LPC coefficients
+            normalize(lpc) {
+                let sum = 0;
+                for (let i = 0; i < lpc.length; i++) {
+                    sum += lpc[i] * lpc[i];
+                }
+                const norm = Math.sqrt(sum);
+                
+                if (norm > 0) {
+                    for (let i = 0; i < lpc.length; i++) {
+                        lpc[i] /= norm;
+                    }
+                }
+                
+                return lpc;
+            }
+            
+            // IIR filter
+            iirFilter(signal, numerator) {
+                const filtered = new Array(signal.length).fill(0);
+                
+                for (let i = 0; i < signal.length; i++) {
+                    filtered[i] = numerator[0] * signal[i];
+                    
+                    for (let j = 1; j < numerator.length && (i - j) >= 0; j++) {
+                        filtered[i] += numerator[j] * signal[i - j];
+                    }
+                }
+                
+                return filtered;
+            }
+            
+            // Robust power estimation using median
+            robustPower(signal, k) {
+                const squared = signal.map(x => x * x);
+                const sorted = squared.slice().sort((a, b) => a - b);
+                const medianValue = sorted[Math.floor(sorted.length / 2)];
+                
+                // Clip values above median * k
+                const clipped = squared.map(x => Math.min(x, medianValue * k));
+                
+                // Return mean of clipped values
+                const sum = clipped.reduce((acc, val) => acc + val, 0);
+                return sum / clipped.length;
+            }
+            
+            // Instant power calculation
+            instantPower(frame) {
+                let sum = 0;
+                for (let i = 0; i < frame.length; i++) {
+                    sum += frame[i] * frame[i];
+                }
+                return sum / frame.length;
+            }
+            
+            // dB to power conversion
+            db2pow(db) {
+                return Math.pow(10, db / 10);
+            }
+            
+            // Process a single frame
+            processFrame(frame) {
+                const silenceThld = this.db2pow(this.silenceThreshold);
+                
+                // Skip silent frames
+                if (this.instantPower(frame) < silenceThld) {
+                    this.idx++;
+                    return [];
+                }
+                
+                // Compute autocorrelation
+                const r = this.autoCorrelation(frame, this.order);
+                
+                // Compute LPC coefficients using Levinson-Durbin
+                const { lpc } = this.levinsonDurbin(r, this.order);
+                
+                // Normalize coefficients
+                const lpcNorm = this.normalize(lpc.slice());
+                
+                // Extract subframe for processing with bounds checking
+                const startProc = Math.max(Math.floor(this.frameSize / 2 - this.hopSize / 2), this.order);
+                const endProc = Math.min(Math.floor(this.frameSize / 2 + this.hopSize / 2), frame.length - this.order);
+                
+                // Inverse filter (excitation signal) with safe bounds
+                const subframeStart = Math.max(0, startProc - this.order);
+                const subframeEnd = Math.min(frame.length, endProc + this.order);
+                const subframe = frame.slice(subframeStart, subframeEnd);
+                
+                // Skip if subframe is too small
+                if (subframe.length < this.order * 2) {
+                    this.idx++;
+                    return [];
+                }
+                
+                const e = this.iirFilter(subframe, lpcNorm);
+                
+                // Matched filter
+                const eInv = e.slice().reverse();
+                const matchedCoeff = lpcNorm.map(x => -x);
+                const eMF = this.iirFilter(eInv, matchedCoeff);
+                const eMFinal = eMF.reverse();
+                
+                // Robust power threshold
+                const robustPowerValue = this.robustPower(e, this.powerEstimationThreshold);
+                const detectionThld = this.db2pow(this.detectionThreshold);
+                const threshold = Math.max(robustPowerValue * detectionThld, silenceThld);
+                
+                // Detect clicks
+                const detections = [];
+                for (let i = this.order; i < eMFinal.length - this.order; i++) {
+                    if (eMFinal[i] * eMFinal[i] >= threshold) {
+                        detections.push(startProc + i - this.order);
+                    }
+                }
+                
+                // Group consecutive detections into click events
+                const clicks = [];
+                if (detections.length >= 1) {
+                    let clickStart = (detections[0] + this.idx * this.hopSize) / this.sampleRate;
+                    let end = detections[0];
+                    
+                    for (let i = 1; i < detections.length; i++) {
+                        if (detections[i] === detections[i - 1] + 1) {
+                            end = detections[i];
+                        } else {
+                            clicks.push({
+                                start: clickStart,
+                                end: (end + this.idx * this.hopSize) / this.sampleRate
+                            });
+                            clickStart = (detections[i] + this.idx * this.hopSize) / this.sampleRate;
+                            end = detections[i];
+                        }
+                    }
+                    
+                    clicks.push({
+                        start: clickStart,
+                        end: (end + this.idx * this.hopSize) / this.sampleRate
+                    });
+                }
+                
+                this.idx++;
+                return clicks;
+            }
+            
+            // Process entire audio buffer
+            processAudio(audioData) {
+                this.idx = 0;
+                this.clicks = [];
+                
+                // Process frames with overlap
+                for (let i = 0; i < audioData.length - this.frameSize; i += this.hopSize) {
+                    const frame = audioData.slice(i, i + this.frameSize);
+                    const frameClicks = this.processFrame(frame);
+                    this.clicks.push(...frameClicks);
+                }
+                
+                return this.clicks;
+            }
+            
+            reset() {
+                this.idx = 0;
+                this.clicks = [];
+            }
+        }
+
+        class PopcornTimer {
+            constructor() {
+                this.audioContext = null;
+                this.analyser = null;
+                this.microphone = null;
+                this.stream = null;
+                this.dataArray = null;
+                this.frequencyData = null;
+                this.bufferLength = null;
+                this.isListening = false;
+                this.startTime = null;
+                this.popTimes = [];
+                this.lastPopTime = 0;
+                this.animationId = null;
+                this.lastLogTime = 0;
+                
+                // Pop detection parameters
+                this.threshold = 80; // Frequency threshold for pop detection (lowered to catch more pops)
+                this.cooldownPeriod = 150; // Minimum ms between pops
+                this.lastPopTime = 0;
+                this.lowFreq = 1000; // Low frequency bound (Hz)
+                this.highFreq = 8000; // High frequency bound (Hz)
+                this.peakThresholdBoost = 40; // Additional threshold for peak amplitude
+                
+                // LPC-based detection
+                this.useLPCDetection = true; // Use LPC-based click detection by default
+                this.lpcAnalyzer = null;
+                this.lpcBuffer = []; // Buffer for LPC frame processing
+                this.lpcFrameSize = 512;
+                this.lpcHopSize = 256;
+                
+                // Debug mode
+                this.debugMode = false;
+                this.audioBuffer = null;
+                this.audioSource = null;
+                this.debugStartTime = 0;
+                this.audioPlaybackEnabled = true;
+                
+                // Frequency history for visualization (last 10 seconds)
+                this.frequencyHistory = [];
+                this.maxHistoryDuration = 10000; // 10 seconds in ms
+                
+                // DOM elements
+                this.startBtn = document.getElementById('startBtn');
+                this.stopBtn = document.getElementById('stopBtn');
+                this.statusText = document.getElementById('statusText');
+                this.timer = document.getElementById('timer');
+                this.popCount = document.getElementById('popCount');
+                this.recommendation = document.getElementById('recommendation');
+                this.error = document.getElementById('error');
+                this.canvas = document.getElementById('visualizer');
+                this.canvasCtx = this.canvas.getContext('2d');
+                this.popIndicators = document.getElementById('popIndicators');
+                this.debugToggle = document.getElementById('debugToggle');
+                this.debugControls = document.getElementById('debugControls');
+                this.audioFileInput = document.getElementById('audioFile');
+                this.debugStartTimeInput = document.getElementById('debugStartTime');
+                this.debugPlaybackToggle = document.getElementById('debugPlayback');
+                this.debugThresholdInput = document.getElementById('debugThreshold');
+                this.debugCooldownInput = document.getElementById('debugCooldown');
+                this.debugLowFreqInput = document.getElementById('debugLowFreq');
+                this.debugHighFreqInput = document.getElementById('debugHighFreq');
+                this.debugPeakThresholdInput = document.getElementById('debugPeakThreshold');
+                
+                this.initCanvas();
+                this.attachEventListeners();
+            }
+
+            initCanvas() {
+                this.canvas.width = this.canvas.offsetWidth;
+                this.canvas.height = this.canvas.offsetHeight;
+            }
+
+            attachEventListeners() {
+                this.startBtn.addEventListener('click', () => this.start());
+                this.stopBtn.addEventListener('click', () => this.stop());
+                this.debugToggle.addEventListener('change', (e) => this.toggleDebugMode(e.target.checked));
+                this.audioFileInput.addEventListener('change', (e) => this.handleFileUpload(e));
+                window.addEventListener('resize', () => this.initCanvas());
+            }
+
+            toggleDebugMode(enabled) {
+                this.debugMode = enabled;
+                this.debugControls.classList.toggle('active', enabled);
+                
+                if (enabled) {
+                    this.startBtn.textContent = 'Start Debug Session';
+                } else {
+                    this.startBtn.textContent = 'Start Listening';
+                    this.audioFileInput.value = '';
+                    this.audioBuffer = null;
+                }
+            }
+
+            async handleFileUpload(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+                
+                try {
+                    this.hideError();
+                    this.statusText.textContent = 'Loading audio file...';
+                    
+                    const arrayBuffer = await file.arrayBuffer();
+                    
+                    // Create audio context if not exists
+                    if (!this.audioContext) {
+                        this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                    
+                    // Decode audio data
+                    this.audioBuffer = await this.audioContext.decodeAudioData(arrayBuffer);
+                    
+                    this.statusText.textContent = `Audio loaded: ${file.name} (${Math.round(this.audioBuffer.duration)}s)`;
+                    this.showError(`✅ Ready to analyze: ${file.name}`);
+                    this.error.style.background = '#e8f5e9';
+                    this.error.style.border = '2px solid #4caf50';
+                    this.error.style.color = '#2e7d32';
+                    
+                } catch (err) {
+                    this.showError('Failed to load audio file. Please use a valid audio format.');
+                    console.error('Error loading audio:', err);
+                    this.audioFileInput.value = '';
+                    this.audioBuffer = null;
+                }
+            }
+
+            async start() {
+                try {
+                    this.hideError();
+                    
+                    // Check if in debug mode
+                    if (this.debugMode) {
+                        if (!this.audioBuffer) {
+                            this.showError('Please upload an audio file first.');
+                            return;
+                        }
+                        await this.startDebugMode();
+                    } else {
+                        await this.startLiveMode();
+                    }
+                    
+                } catch (err) {
+                    this.showError('Could not start. Please check your settings and try again.');
+                    console.error('Error starting:', err);
+                }
+            }
+
+            async startLiveMode() {
+                // Request microphone access
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false
+                    } 
+                });
+                
+                // Store stream reference for cleanup
+                this.stream = stream;
+                
+                // Setup audio context
+                this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                this.analyser = this.audioContext.createAnalyser();
+                this.microphone = this.audioContext.createMediaStreamSource(stream);
+                
+                this.analyser.fftSize = 2048;
+                this.bufferLength = this.analyser.frequencyBinCount;
+                this.dataArray = new Uint8Array(this.bufferLength);
+                this.frequencyData = new Uint8Array(this.bufferLength);
+                
+                this.microphone.connect(this.analyser);
+                
+                // Reset state and start
+                this.resetState();
+                
+                // Initialize LPC analyzer for live mode
+                if (this.useLPCDetection) {
+                    this.lpcAnalyzer = new LPCAnalyzer({
+                        sampleRate: this.audioContext.sampleRate,
+                        order: 12,
+                        frameSize: this.lpcFrameSize,
+                        hopSize: this.lpcHopSize,
+                        detectionThreshold: 30,
+                        powerEstimationThreshold: 10,
+                        silenceThreshold: -50
+                    });
+                    console.log('🔬 LPC-based click detection enabled');
+                    console.log('🔧 LPC order: 12, Frame size: 512, Hop: 256');
+                    console.log('🔧 Detection threshold: +30dB above noise floor');
+                }
+                
+                this.updateUI('Listening...');
+                console.log('🎤 Live mode started, threshold:', this.threshold);
+                this.analyze();
+            }
+
+            async startDebugMode() {
+                // Setup audio context (may already exist from file load)
+                if (!this.audioContext || this.audioContext.state === 'closed') {
+                    this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                
+                this.analyser = this.audioContext.createAnalyser();
+                this.analyser.fftSize = 2048;
+                this.bufferLength = this.analyser.frequencyBinCount;
+                this.dataArray = new Uint8Array(this.bufferLength);
+                this.frequencyData = new Uint8Array(this.bufferLength);
+                
+                // Create buffer source
+                this.audioSource = this.audioContext.createBufferSource();
+                this.audioSource.buffer = this.audioBuffer;
+                this.audioSource.connect(this.analyser);
+                
+                // Get start time from debug controls
+                const startTime = parseFloat(this.debugStartTimeInput?.value || 0);
+                this.debugStartTime = startTime;
+                
+                // Check if audio playback is enabled from checkbox
+                const playbackEnabled = this.debugPlaybackToggle?.checked !== false;
+                
+                // Read debug parameters from inputs
+                if (this.debugThresholdInput) {
+                    this.threshold = parseInt(this.debugThresholdInput.value) || 80;
+                }
+                if (this.debugCooldownInput) {
+                    this.cooldownPeriod = parseInt(this.debugCooldownInput.value) || 150;
+                }
+                if (this.debugLowFreqInput) {
+                    this.lowFreq = parseInt(this.debugLowFreqInput.value) || 1000;
+                }
+                if (this.debugHighFreqInput) {
+                    this.highFreq = parseInt(this.debugHighFreqInput.value) || 8000;
+                }
+                if (this.debugPeakThresholdInput) {
+                    this.peakThresholdBoost = parseInt(this.debugPeakThresholdInput.value) || 40;
+                }
+                
+                // Connect to destination to hear the audio if playback is enabled
+                if (playbackEnabled) {
+                    this.audioSource.connect(this.audioContext.destination);
+                    console.log('🔊 Audio playback enabled');
+                } else {
+                    console.log('🔇 Audio playback muted');
+                }
+                
+                // Reset state and start
+                this.resetState();
+                
+                // Initialize LPC analyzer for debug mode
+                if (this.useLPCDetection) {
+                    this.lpcAnalyzer = new LPCAnalyzer({
+                        sampleRate: this.audioContext.sampleRate,
+                        order: 12,
+                        frameSize: this.lpcFrameSize,
+                        hopSize: this.lpcHopSize,
+                        detectionThreshold: 30,
+                        powerEstimationThreshold: 10,
+                        silenceThreshold: -50
+                    });
+                    console.log('🔬 LPC-based click detection enabled');
+                }
+                
+                this.updateUI(`Analyzing: ${this.audioFileInput.files[0].name}`);
+                
+                console.log('🔧 Debug mode started, start time:', startTime + 's');
+                console.log('🔧 Audio duration:', this.audioBuffer.duration.toFixed(2) + 's');
+                console.log('🔧 Sample rate:', this.audioContext.sampleRate + 'Hz');
+                
+                if (this.useLPCDetection) {
+                    console.log('🔧 LPC order: 12, Frame size: 512, Hop: 256');
+                    console.log('🔧 Detection threshold: +30dB above noise floor');
+                } else {
+                    console.log('🔧 Threshold:', this.threshold);
+                    console.log('🔧 Cooldown:', this.cooldownPeriod + 'ms');
+                    console.log('🔧 Frequency range:', this.lowFreq + '-' + this.highFreq + 'Hz');
+                    console.log('🔧 Peak boost:', this.peakThresholdBoost);
+                }
+                
+                // Start playback from specified time
+                this.audioSource.start(0, startTime);
+                
+                // Stop automatically when finished
+                this.audioSource.onended = () => {
+                    console.log('🔧 Audio playback ended');
+                    this.stop();
+                };
+                
+                this.analyze();
+            }
+
+            resetState() {
+                this.isListening = true;
+                this.startTime = Date.now();
+                this.popTimes = [];
+                this.lastPopTime = 0;
+                this.frequencyHistory = [];
+                this.lpcBuffer = []; // Reset LPC buffer
+                if (this.lpcAnalyzer) {
+                    this.lpcAnalyzer.reset();
+                }
+            }
+
+            updateUI(statusText) {
+                this.startBtn.style.display = 'none';
+                this.stopBtn.style.display = 'block';
+                this.statusText.textContent = statusText;
+                this.recommendation.classList.remove('show');
+                this.updatePopIndicators();
+            }
+
+            stop() {
+                this.isListening = false;
+                
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                }
+                
+                if (this.audioSource) {
+                    try {
+                        this.audioSource.stop();
+                    } catch (e) {
+                        // Already stopped
+                    }
+                    this.audioSource.disconnect();
+                    this.audioSource = null;
+                }
+                
+                if (this.microphone) {
+                    this.microphone.disconnect();
+                }
+                
+                if (this.stream) {
+                    this.stream.getTracks().forEach(track => track.stop());
+                }
+                
+                if (this.audioContext) {
+                    this.audioContext.close();
+                    this.audioContext = null;
+                }
+                
+                this.startBtn.style.display = 'block';
+                this.stopBtn.style.display = 'none';
+                this.statusText.textContent = 'Stopped';
+                
+                // Clear canvas
+                this.canvasCtx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+            }
+
+            analyze() {
+                if (!this.isListening) return;
+                
+                this.analyser.getByteTimeDomainData(this.dataArray);
+                
+                // Update timer
+                const elapsed = Date.now() - this.startTime;
+                this.updateTimer(elapsed);
+                
+                // Detect pops
+                this.detectPop();
+                
+                // Visualize audio
+                this.visualize();
+                
+                // Check for recommendations
+                this.checkRecommendations(elapsed);
+                
+                this.animationId = requestAnimationFrame(() => this.analyze());
+            }
+
+            detectPop() {
+                const now = Date.now();
+                
+                // Get frequency data for better pop detection
+                this.analyser.getByteFrequencyData(this.frequencyData);
+                
+                // Store frequency snapshot for visualization
+                this.frequencyHistory.push({
+                    timestamp: now,
+                    data: new Uint8Array(this.frequencyData)
+                });
+                
+                // Keep only last 10 seconds of history
+                const cutoffTime = now - this.maxHistoryDuration;
+                this.frequencyHistory = this.frequencyHistory.filter(h => h.timestamp > cutoffTime);
+                
+                // Use LPC-based detection if enabled
+                if (this.useLPCDetection && this.lpcAnalyzer) {
+                    this.detectPopLPC(now);
+                } else {
+                    this.detectPopFFT(now);
+                }
+            }
+            
+            detectPopLPC(now) {
+                // Get time-domain data for LPC processing
+                this.analyser.getByteTimeDomainData(this.dataArray);
+                
+                // Convert Uint8Array to Float32Array normalized to [-1, 1]
+                const audioData = new Float32Array(this.dataArray.length);
+                for (let i = 0; i < this.dataArray.length; i++) {
+                    audioData[i] = (this.dataArray[i] - 128) / 128.0;
+                }
+                
+                // Add to LPC buffer
+                this.lpcBuffer.push(...audioData);
+                
+                // Process frames when we have enough data
+                while (this.lpcBuffer.length >= this.lpcFrameSize) {
+                    const frame = this.lpcBuffer.slice(0, this.lpcFrameSize);
+                    const clicks = this.lpcAnalyzer.processFrame(frame);
+                    
+                    // Register detected clicks as pops
+                    for (const click of clicks) {
+                        // click.start is already in seconds from the beginning of the audio
+                        // Convert to timestamp based on startTime
+                        const clickTime = this.startTime + (click.start * 1000);
+                        
+                        // Check cooldown
+                        if (clickTime - this.lastPopTime > this.cooldownPeriod) {
+                            this.lastPopTime = clickTime;
+                            this.popTimes.push(clickTime);
+                            
+                            const currentTime = (clickTime - this.startTime) / 1000;
+                            console.log('🍿 CLICK #' + this.popTimes.length + ' detected!',
+                                       'Time:', currentTime.toFixed(2) + 's',
+                                       'Duration:', ((click.end - click.start) * 1000).toFixed(1) + 'ms');
+                            
+                            // Update UI
+                            this.popCount.textContent = `Pops detected: ${this.popTimes.length}`;
+                            this.updatePopIndicators();
+                            this.flashPopIndicator();
+                        }
+                    }
+                    
+                    // Slide buffer by hop size
+                    this.lpcBuffer = this.lpcBuffer.slice(this.lpcHopSize);
+                }
+                
+                // Log every second for debugging
+                if (now - this.lastLogTime > 1000 || !this.lastLogTime) {
+                    this.lastLogTime = now;
+                    console.log('📊 Frame ' + this.lpcAnalyzer.idx,
+                               'Time:', ((now - this.startTime) / 1000).toFixed(1) + 's',
+                               'Buffer:', this.lpcBuffer.length);
+                }
+            }
+            
+            detectPopFFT(now) {
+                // Focus on configurable frequency range where pops occur
+                // Sample rate is typically 44100Hz or 48000Hz
+                // frequencyBinCount is fftSize / 2 = 1024
+                // Each bin represents sampleRate / fftSize Hz
+                const sampleRate = this.audioContext.sampleRate;
+                const binWidth = sampleRate / (this.analyser.fftSize);
+                const lowFreqBin = Math.floor(this.lowFreq / binWidth);
+                const highFreqBin = Math.floor(this.highFreq / binWidth);
+                
+                // Calculate energy in the pop frequency range
+                let energy = 0;
+                let maxAmplitude = 0;
+                let peakFrequency = 0;
+                for (let i = lowFreqBin; i < highFreqBin && i < this.frequencyData.length; i++) {
+                    energy += this.frequencyData[i];
+                    if (this.frequencyData[i] > maxAmplitude) {
+                        maxAmplitude = this.frequencyData[i];
+                        peakFrequency = i * binWidth;
+                    }
+                }
+                const avgEnergy = energy / (highFreqBin - lowFreqBin);
+                
+                // Log every second for debugging
+                if (now - this.lastLogTime > 1000 || !this.lastLogTime) {
+                    this.lastLogTime = now;
+                    console.log('📊 Audio level - Avg:', avgEnergy.toFixed(1), 'Max:', maxAmplitude, 
+                                'Peak freq:', peakFrequency.toFixed(0) + 'Hz', 
+                                'Time:', ((now - this.startTime) / 1000).toFixed(1) + 's');
+                }
+                
+                // Adaptive threshold - use lower value for initial detection
+                const adaptiveThreshold = this.popTimes.length < 3 ? this.threshold * 0.8 : this.threshold;
+                
+                // Detect peak with both average energy and max amplitude (using configurable boost)
+                const isSignificantPeak = avgEnergy > adaptiveThreshold || maxAmplitude > (adaptiveThreshold + this.peakThresholdBoost);
+                
+                if (isSignificantPeak && (now - this.lastPopTime) > this.cooldownPeriod) {
+                    this.lastPopTime = now;
+                    this.popTimes.push(now);
+                    
+                    console.log('🍿 POP #' + this.popTimes.length + '!', 
+                                'Energy:', avgEnergy.toFixed(1), 
+                                'Peak:', maxAmplitude,
+                                'Freq:', peakFrequency.toFixed(0) + 'Hz',
+                                'Time:', ((now - this.startTime) / 1000).toFixed(2) + 's',
+                                'Threshold:', adaptiveThreshold.toFixed(1));
+                    
+                    // Update UI
+                    this.popCount.textContent = `Pops detected: ${this.popTimes.length}`;
+                    this.updatePopIndicators();
+                    
+                    // Flash indicator
+                    this.flashPopIndicator();
+                }
+            }
+
+            updateTimer(elapsed) {
+                const seconds = Math.floor(elapsed / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const remainingSeconds = seconds % 60;
+                this.timer.textContent = `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
+            }
+
+            visualize() {
+                const width = this.canvas.width;
+                const height = this.canvas.height;
+                const now = Date.now();
+                
+                // Clear canvas
+                this.canvasCtx.fillStyle = '#f7f7f7';
+                this.canvasCtx.fillRect(0, 0, width, height);
+                
+                // Draw frequency spectrum history (heat map style)
+                if (this.frequencyHistory.length > 0) {
+                    const historyWidth = Math.min(this.frequencyHistory.length, width);
+                    const barWidth = width / historyWidth;
+                    const timeWindow = 5000; // Show last 5 seconds
+                    const cutoffTime = now - timeWindow;
+                    
+                    // Filter to recent history
+                    const recentHistory = this.frequencyHistory.filter(h => h.timestamp > cutoffTime);
+                    
+                    // Focus on pop frequency range for visualization
+                    const sampleRate = this.audioContext.sampleRate;
+                    const binWidth = sampleRate / (this.analyser.fftSize);
+                    const lowFreqBin = Math.floor(500 / binWidth);   // 500Hz
+                    const highFreqBin = Math.floor(10000 / binWidth); // 10kHz
+                    const freqRange = highFreqBin - lowFreqBin;
+                    
+                    recentHistory.forEach((snapshot, index) => {
+                        const x = (index / recentHistory.length) * width;
+                        
+                        // Draw frequency bars for this time slice
+                        for (let f = lowFreqBin; f < highFreqBin && f < snapshot.data.length; f++) {
+                            const amplitude = snapshot.data[f];
+                            const normalizedF = (f - lowFreqBin) / freqRange;
+                            const barHeight = (amplitude / 255) * height * 0.8;
+                            const y = height - barHeight;
+                            
+                            // Color based on amplitude (blue to red)
+                            const hue = 240 - (amplitude / 255) * 120; // Blue (240) to red (120)
+                            const saturation = 70 + (amplitude / 255) * 30;
+                            const lightness = 40 + (amplitude / 255) * 20;
+                            this.canvasCtx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+                            
+                            const barY = height - (normalizedF * height);
+                            const individualBarHeight = height / freqRange;
+                            this.canvasCtx.fillRect(x, barY, barWidth + 1, individualBarHeight + 1);
+                        }
+                    });
+                }
+                
+                // Draw current waveform overlay
+                this.analyser.getByteTimeDomainData(this.dataArray);
+                this.canvasCtx.lineWidth = 2;
+                this.canvasCtx.strokeStyle = 'rgba(102, 126, 234, 0.7)';
+                this.canvasCtx.beginPath();
+                
+                const sliceWidth = width / this.bufferLength;
+                let x = 0;
+                
+                for (let i = 0; i < this.bufferLength; i++) {
+                    const v = this.dataArray[i] / 128.0;
+                    const y = v * height / 2;
+                    
+                    if (i === 0) {
+                        this.canvasCtx.moveTo(x, y);
+                    } else {
+                        this.canvasCtx.lineTo(x, y);
+                    }
+                    
+                    x += sliceWidth;
+                }
+                
+                this.canvasCtx.lineTo(width, height / 2);
+                this.canvasCtx.stroke();
+                
+                // Draw pop markers
+                const timeWindow = 5000; // 5 seconds
+                const cutoffTime = now - timeWindow;
+                this.popTimes.forEach(popTime => {
+                    if (popTime > cutoffTime) {
+                        const relativeTime = (now - popTime) / timeWindow;
+                        const markerX = width * (1 - relativeTime);
+                        
+                        // Draw vertical line for pop
+                        this.canvasCtx.strokeStyle = 'rgba(255, 215, 0, 0.8)';
+                        this.canvasCtx.lineWidth = 3;
+                        this.canvasCtx.beginPath();
+                        this.canvasCtx.moveTo(markerX, 0);
+                        this.canvasCtx.lineTo(markerX, height);
+                        this.canvasCtx.stroke();
+                        
+                        // Draw pop icon
+                        this.canvasCtx.fillStyle = 'rgba(255, 215, 0, 0.9)';
+                        this.canvasCtx.font = 'bold 16px Arial';
+                        this.canvasCtx.fillText('🍿', markerX - 8, 20);
+                    }
+                });
+            }
+
+            checkRecommendations(elapsed) {
+                const popCount = this.popTimes.length;
+                const now = Date.now();
+                const timeSinceLastPop = now - this.lastPopTime;
+                
+                // Calculate pop rate (pops per second) over last 10 seconds
+                const recentPops = this.popTimes.filter(t => now - t < 10000);
+                const popRate = recentPops.length / 10;
+                
+                // Early stage: not enough data
+                if (popCount < 5 && elapsed < 30000) {
+                    this.recommendation.classList.remove('show');
+                    return;
+                }
+                
+                // Optimal stopping condition: pops slowing down significantly
+                if (popCount >= 10 && timeSinceLastPop > 2500) {
+                    this.recommendation.textContent = '✅ Good time to stop! Pops have slowed down significantly.';
+                    this.recommendation.classList.add('show');
+                    this.recommendation.classList.remove('warning');
+                    return;
+                }
+                
+                // Warning: too long without pops (possible burning)
+                if (popCount >= 5 && timeSinceLastPop > 4000) {
+                    this.recommendation.textContent = '⚠️ STOP NOW! No pops detected for 4+ seconds - may be burning!';
+                    this.recommendation.classList.add('show', 'warning');
+                    return;
+                }
+                
+                // Active popping phase
+                if (popCount >= 5 && popRate > 2) {
+                    this.recommendation.textContent = '🔥 Popping actively... Wait for pops to slow down.';
+                    this.recommendation.classList.add('show');
+                    this.recommendation.classList.remove('warning');
+                    return;
+                }
+                
+                // Moderate popping
+                if (popCount >= 10 && popRate > 0.5 && popRate <= 2) {
+                    this.recommendation.textContent = '⏰ Slowing down... Get ready to stop soon!';
+                    this.recommendation.classList.add('show');
+                    this.recommendation.classList.remove('warning');
+                    return;
+                }
+            }
+
+            updatePopIndicators() {
+                const maxIndicators = 10;
+                const indicators = Math.min(this.popTimes.length, maxIndicators);
+                
+                this.popIndicators.innerHTML = '';
+                for (let i = 0; i < maxIndicators; i++) {
+                    const dot = document.createElement('span');
+                    dot.className = 'pop-indicator';
+                    if (i < indicators) {
+                        dot.classList.add('active');
+                    }
+                    this.popIndicators.appendChild(dot);
+                }
+            }
+
+            flashPopIndicator() {
+                // Visual feedback for pop detection
+                const indicators = this.popIndicators.querySelectorAll('.pop-indicator.active');
+                if (indicators.length > 0) {
+                    const lastIndicator = indicators[indicators.length - 1];
+                    lastIndicator.style.background = '#ffd600';
+                    setTimeout(() => {
+                        lastIndicator.style.background = '#667eea';
+                    }, 300);
+                }
+            }
+
+            showError(message) {
+                this.error.textContent = message;
+                this.error.classList.add('show');
+            }
+
+            hideError() {
+                this.error.classList.remove('show');
+            }
+        }
+
+        // Initialize app
+        document.addEventListener('DOMContentLoaded', () => {
+            // Check browser compatibility
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                document.getElementById('error').textContent = 'Your browser does not support microphone access. Please use a modern browser.';
+                document.getElementById('error').classList.add('show');
+                document.getElementById('startBtn').disabled = true;
+                return;
+            }
+            
+            new PopcornTimer();
+        });
+    </script>
+</body>
+</html>
